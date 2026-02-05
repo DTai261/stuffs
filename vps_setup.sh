@@ -566,233 +566,473 @@ install_packages_menu() {
     fi
 }
 
-# Sync system time
+# Change system timezone
 sync_system_time() {
-    echo -e "${BLUE}Syncing system time with UTC...${NC}"
+    echo -e "${BLUE}Change System Timezone${NC}"
+    echo -e "${YELLOW}Current timezone: $(timedatectl show --property=Timezone --value 2>/dev/null || date +%Z 2>/dev/null || echo 'Unknown')${NC}"
+    echo -e "${YELLOW}Current time: $(date)${NC}"
+    echo ""
     
-    local time_synced=0
+    # Common timezones with UTC offsets
+    declare -A timezones=(
+        ["1"]="UTC (UTC+0)"
+        ["2"]="UTC+1 (Europe/Paris, Africa/Lagos)"
+        ["3"]="UTC+2 (Europe/Athens, Africa/Cairo)"
+        ["4"]="UTC+3 (Europe/Moscow, Africa/Nairobi)"
+        ["5"]="UTC+4 (Asia/Dubai, Europe/Samara)"
+        ["6"]="UTC+5 (Asia/Karachi, Asia/Tashkent)"
+        ["7"]="UTC+6 (Asia/Dhaka, Asia/Almaty)"
+        ["8"]="UTC+7 (Asia/Bangkok, Asia/Ho_Chi_Minh)"
+        ["9"]="UTC+8 (Asia/Shanghai, Asia/Singapore)"
+        ["10"]="UTC+9 (Asia/Tokyo, Asia/Seoul)"
+        ["11"]="UTC+10 (Australia/Sydney, Pacific/Port_Moresby)"
+        ["12"]="UTC+11 (Pacific/Norfolk, Pacific/Auckland)"
+        ["13"]="UTC+12 (Pacific/Auckland, Pacific/Fiji)"
+        ["14"]="UTC-1 (Atlantic/Azores)"
+        ["15"]="UTC-2 (Atlantic/South_Georgia)"
+        ["16"]="UTC-3 (America/Sao_Paulo, America/Argentina/Buenos_Aires)"
+        ["17"]="UTC-4 (America/Caracas, America/Santiago)"
+        ["18"]="UTC-5 (America/New_York, America/Bogota)"
+        ["19"]="UTC-6 (America/Chicago, America/Mexico_City)"
+        ["20"]="UTC-7 (America/Denver, America/Phoenix)"
+        ["21"]="UTC-8 (America/Los_Angeles, America/Vancouver)"
+        ["22"]="UTC-9 (America/Anchorage)"
+        ["23"]="UTC-10 (Pacific/Honolulu)"
+        ["24"]="UTC-11 (Pacific/Midway)"
+        ["25"]="UTC-12 (Pacific/Baker_Island)"
+    )
     
-    # Method 1: Try NTP synchronization (chrony preferred, then ntp)
-    if command -v chronyd &> /dev/null || command -v chrony &> /dev/null || command -v chronyc &> /dev/null; then
-        echo -e "${BLUE}Using chrony for time synchronization...${NC}"
-        local chrony_service=""
-        if systemctl list-units --type=service 2>/dev/null | grep -q "chronyd.service"; then
-            chrony_service="chronyd"
-        elif systemctl list-units --type=service 2>/dev/null | grep -q "chrony.service"; then
-            chrony_service="chrony"
+    # IANA timezone mappings for each UTC offset
+    declare -A tz_mappings=(
+        ["UTC"]="UTC"
+        ["UTC+1"]="Europe/Paris"
+        ["UTC+2"]="Europe/Athens"
+        ["UTC+3"]="Europe/Moscow"
+        ["UTC+4"]="Asia/Dubai"
+        ["UTC+5"]="Asia/Karachi"
+        ["UTC+6"]="Asia/Dhaka"
+        ["UTC+7"]="Asia/Bangkok"
+        ["UTC+8"]="Asia/Shanghai"
+        ["UTC+9"]="Asia/Tokyo"
+        ["UTC+10"]="Australia/Sydney"
+        ["UTC+11"]="Pacific/Norfolk"
+        ["UTC+12"]="Pacific/Auckland"
+        ["UTC-1"]="Atlantic/Azores"
+        ["UTC-2"]="Atlantic/South_Georgia"
+        ["UTC-3"]="America/Sao_Paulo"
+        ["UTC-4"]="America/Caracas"
+        ["UTC-5"]="America/New_York"
+        ["UTC-6"]="America/Chicago"
+        ["UTC-7"]="America/Denver"
+        ["UTC-8"]="America/Los_Angeles"
+        ["UTC-9"]="America/Anchorage"
+        ["UTC-10"]="Pacific/Honolulu"
+        ["UTC-11"]="Pacific/Midway"
+        ["UTC-12"]="Pacific/Baker_Island"
+    )
+    
+    echo -e "${BLUE}Select timezone:${NC}"
+    for i in {1..25}; do
+        echo "$i) ${timezones[$i]}"
+    done
+    echo "26) Custom timezone (enter IANA timezone name)"
+    echo "27) Cancel"
+    
+    read -p "Choose option [1-27]: " tz_option
+    
+    local selected_tz=""
+    local tz_display=""
+    
+    case $tz_option in
+        1)
+            selected_tz="UTC"
+            tz_display="UTC (UTC+0)"
+            ;;
+        2)
+            selected_tz="Europe/Paris"
+            tz_display="UTC+1"
+            ;;
+        3)
+            selected_tz="Europe/Athens"
+            tz_display="UTC+2"
+            ;;
+        4)
+            selected_tz="Europe/Moscow"
+            tz_display="UTC+3"
+            ;;
+        5)
+            selected_tz="Asia/Dubai"
+            tz_display="UTC+4"
+            ;;
+        6)
+            selected_tz="Asia/Karachi"
+            tz_display="UTC+5"
+            ;;
+        7)
+            selected_tz="Asia/Dhaka"
+            tz_display="UTC+6"
+            ;;
+        8)
+            selected_tz="Asia/Bangkok"
+            tz_display="UTC+7"
+            ;;
+        9)
+            selected_tz="Asia/Shanghai"
+            tz_display="UTC+8"
+            ;;
+        10)
+            selected_tz="Asia/Tokyo"
+            tz_display="UTC+9"
+            ;;
+        11)
+            selected_tz="Australia/Sydney"
+            tz_display="UTC+10"
+            ;;
+        12)
+            selected_tz="Pacific/Norfolk"
+            tz_display="UTC+11"
+            ;;
+        13)
+            selected_tz="Pacific/Auckland"
+            tz_display="UTC+12"
+            ;;
+        14)
+            selected_tz="Atlantic/Azores"
+            tz_display="UTC-1"
+            ;;
+        15)
+            selected_tz="Atlantic/South_Georgia"
+            tz_display="UTC-2"
+            ;;
+        16)
+            selected_tz="America/Sao_Paulo"
+            tz_display="UTC-3"
+            ;;
+        17)
+            selected_tz="America/Caracas"
+            tz_display="UTC-4"
+            ;;
+        18)
+            selected_tz="America/New_York"
+            tz_display="UTC-5"
+            ;;
+        19)
+            selected_tz="America/Chicago"
+            tz_display="UTC-6"
+            ;;
+        20)
+            selected_tz="America/Denver"
+            tz_display="UTC-7"
+            ;;
+        21)
+            selected_tz="America/Los_Angeles"
+            tz_display="UTC-8"
+            ;;
+        22)
+            selected_tz="America/Anchorage"
+            tz_display="UTC-9"
+            ;;
+        23)
+            selected_tz="Pacific/Honolulu"
+            tz_display="UTC-10"
+            ;;
+        24)
+            selected_tz="Pacific/Midway"
+            tz_display="UTC-11"
+            ;;
+        25)
+            selected_tz="Pacific/Baker_Island"
+            tz_display="UTC-12"
+            ;;
+        26)
+            read -p "Enter IANA timezone name (e.g., America/New_York, Europe/London): " selected_tz
+            if [ -z "$selected_tz" ]; then
+                echo -e "${RED}Timezone cannot be empty.${NC}"
+                return 1
+            fi
+            tz_display="$selected_tz"
+            ;;
+        27)
+            echo -e "${YELLOW}Cancelled.${NC}"
+            return 0
+            ;;
+        *)
+            echo -e "${RED}Invalid option.${NC}"
+            return 1
+            ;;
+    esac
+    
+    # Verify timezone exists
+    if [ ! -f "/usr/share/zoneinfo/$selected_tz" ] && [ "$selected_tz" != "UTC" ]; then
+        echo -e "${RED}Invalid timezone: $selected_tz${NC}"
+        echo -e "${YELLOW}Please check the IANA timezone name and try again.${NC}"
+        return 1
+    fi
+    
+    # Set timezone
+    echo -e "${BLUE}Setting timezone to $selected_tz ($tz_display)...${NC}"
+    
+    if command -v timedatectl &> /dev/null; then
+        if timedatectl set-timezone "$selected_tz" 2>/dev/null; then
+            echo -e "${GREEN}Timezone set to $selected_tz ($tz_display)${NC}"
+        else
+            echo -e "${RED}Failed to set timezone using timedatectl.${NC}"
+            return 1
         fi
+    else
+        # Fallback method: update /etc/localtime
+        if [ -f "/usr/share/zoneinfo/$selected_tz" ]; then
+            if [ -f /etc/localtime ]; then
+                backup_file "/etc/localtime"
+            fi
+            if ln -sf "/usr/share/zoneinfo/$selected_tz" /etc/localtime 2>/dev/null; then
+                echo -e "${GREEN}Timezone set to $selected_tz ($tz_display)${NC}"
+            else
+                echo -e "${RED}Failed to set timezone.${NC}"
+                return 1
+            fi
+        elif [ "$selected_tz" = "UTC" ]; then
+            if [ -f /etc/localtime ]; then
+                backup_file "/etc/localtime"
+            fi
+            if ln -sf /usr/share/zoneinfo/UTC /etc/localtime 2>/dev/null; then
+                echo -e "${GREEN}Timezone set to UTC${NC}"
+            else
+                echo -e "${RED}Failed to set timezone.${NC}"
+                return 1
+            fi
+        else
+            echo -e "${RED}Timezone file not found: /usr/share/zoneinfo/$selected_tz${NC}"
+            return 1
+        fi
+    fi
+    
+    # Display updated time
+    echo -e "${GREEN}Current system time: $(date)${NC}"
+    echo -e "${GREEN}Timezone: $(timedatectl show --property=Timezone --value 2>/dev/null || date +%Z 2>/dev/null || echo "$selected_tz")${NC}"
+    
+    # Ask if user wants to sync time
+    echo ""
+    read -p "Do you want to sync system time with NTP? [y/N]: " sync_choice
+    if [[ "$sync_choice" =~ ^[Yy]$ ]]; then
+        echo -e "${BLUE}Syncing system time...${NC}"
+        local time_synced=0
         
-        if [ -z "$chrony_service" ] || ! systemctl is-active --quiet "$chrony_service" 2>/dev/null; then
-            echo -e "${YELLOW}chrony service not running. Installing and starting chrony...${NC}"
+        # Method 1: Try NTP synchronization (chrony preferred, then ntp)
+        if command -v chronyd &> /dev/null || command -v chrony &> /dev/null || command -v chronyc &> /dev/null; then
+            echo -e "${BLUE}Using chrony for time synchronization...${NC}"
+            local chrony_service=""
+            if systemctl list-units --type=service 2>/dev/null | grep -q "chronyd.service"; then
+                chrony_service="chronyd"
+            elif systemctl list-units --type=service 2>/dev/null | grep -q "chrony.service"; then
+                chrony_service="chrony"
+            fi
+            
+            if [ -z "$chrony_service" ] || ! systemctl is-active --quiet "$chrony_service" 2>/dev/null; then
+                echo -e "${YELLOW}chrony service not running. Installing and starting chrony...${NC}"
+                case $PKG_MANAGER in
+                    apt)
+                        install_package "chrony"
+                        chrony_service="chrony"
+                        systemctl enable chrony 2>/dev/null || systemctl enable chronyd 2>/dev/null
+                        systemctl start chrony 2>/dev/null || systemctl start chronyd 2>/dev/null
+                        if systemctl is-active --quiet chronyd 2>/dev/null; then
+                            chrony_service="chronyd"
+                        fi
+                        ;;
+                    yum|dnf)
+                        install_package "chrony"
+                        chrony_service="chronyd"
+                        systemctl enable chronyd
+                        systemctl start chronyd
+                        ;;
+                    pacman)
+                        install_package "chrony"
+                        chrony_service="chronyd"
+                        systemctl enable chronyd
+                        systemctl start chronyd
+                        ;;
+                esac
+            fi
+            
+            # Wait for chrony to sync
+            sleep 3
+            if command -v chronyc &> /dev/null; then
+                if chronyc sources 2>/dev/null | grep -q "^\^\*"; then
+                    echo -e "${GREEN}Time synchronized using chrony.${NC}"
+                    time_synced=1
+                else
+                    # Force chrony to make step adjustment
+                    chronyc makestep 2>/dev/null
+                    sleep 2
+                    if chronyc sources 2>/dev/null | grep -q "^\^\*"; then
+                        echo -e "${GREEN}Time synchronized using chrony.${NC}"
+                        time_synced=1
+                    fi
+                fi
+            elif [ -n "$chrony_service" ] && systemctl is-active --quiet "$chrony_service" 2>/dev/null; then
+                echo -e "${GREEN}chrony service is running. Time should be synchronized.${NC}"
+                time_synced=1
+            fi
+        elif command -v ntpd &> /dev/null || command -v ntpdate &> /dev/null; then
+            echo -e "${BLUE}Using NTP for time synchronization...${NC}"
+            if command -v ntpdate &> /dev/null; then
+                if ntpdate -q pool.ntp.org 2>/dev/null || ntpdate -q time.google.com 2>/dev/null || ntpdate -q time.cloudflare.com 2>/dev/null; then
+                    echo -e "${GREEN}Time synchronized using ntpdate.${NC}"
+                    time_synced=1
+                fi
+            elif command -v ntpd &> /dev/null; then
+                if ! systemctl is-active --quiet ntpd 2>/dev/null; then
+                    systemctl start ntpd 2>/dev/null
+                    sleep 3
+                fi
+                if ntpq -p 2>/dev/null | grep -q "^\*"; then
+                    echo -e "${GREEN}Time synchronized using ntpd.${NC}"
+                    time_synced=1
+                fi
+            fi
+        else
+            # Try to install chrony or ntp
+            echo -e "${YELLOW}NTP tools not found. Attempting to install...${NC}"
             case $PKG_MANAGER in
                 apt)
-                    install_package "chrony"
-                    chrony_service="chrony"
-                    systemctl enable chrony 2>/dev/null || systemctl enable chronyd 2>/dev/null
-                    systemctl start chrony 2>/dev/null || systemctl start chronyd 2>/dev/null
-                    if systemctl is-active --quiet chronyd 2>/dev/null; then
-                        chrony_service="chronyd"
+                    if install_package "chrony"; then
+                        local chrony_service="chrony"
+                        systemctl enable chrony 2>/dev/null || systemctl enable chronyd 2>/dev/null
+                        systemctl start chrony 2>/dev/null || systemctl start chronyd 2>/dev/null
+                        if systemctl is-active --quiet chronyd 2>/dev/null; then
+                            chrony_service="chronyd"
+                        fi
+                        sleep 3
+                        if command -v chronyc &> /dev/null; then
+                            chronyc makestep 2>/dev/null
+                            if chronyc sources 2>/dev/null | grep -q "^\^\*"; then
+                                echo -e "${GREEN}Time synchronized using chrony.${NC}"
+                                time_synced=1
+                            fi
+                        elif systemctl is-active --quiet "$chrony_service" 2>/dev/null; then
+                            echo -e "${GREEN}chrony service is running. Time should be synchronized.${NC}"
+                            time_synced=1
+                        fi
                     fi
                     ;;
                 yum|dnf)
-                    install_package "chrony"
-                    chrony_service="chronyd"
-                    systemctl enable chronyd
-                    systemctl start chronyd
+                    if install_package "chrony"; then
+                        systemctl enable chronyd
+                        systemctl start chronyd
+                        sleep 3
+                        if command -v chronyc &> /dev/null; then
+                            chronyc makestep 2>/dev/null
+                            if chronyc sources 2>/dev/null | grep -q "^\^\*"; then
+                                echo -e "${GREEN}Time synchronized using chrony.${NC}"
+                                time_synced=1
+                            fi
+                        elif systemctl is-active --quiet chronyd 2>/dev/null; then
+                            echo -e "${GREEN}chrony service is running. Time should be synchronized.${NC}"
+                            time_synced=1
+                        fi
+                    fi
                     ;;
                 pacman)
-                    install_package "chrony"
-                    chrony_service="chronyd"
-                    systemctl enable chronyd
-                    systemctl start chronyd
+                    if install_package "chrony"; then
+                        systemctl enable chronyd
+                        systemctl start chronyd
+                        sleep 3
+                        if command -v chronyc &> /dev/null; then
+                            chronyc makestep 2>/dev/null
+                            if chronyc sources 2>/dev/null | grep -q "^\^\*"; then
+                                echo -e "${GREEN}Time synchronized using chrony.${NC}"
+                                time_synced=1
+                            fi
+                        elif systemctl is-active --quiet chronyd 2>/dev/null; then
+                            echo -e "${GREEN}chrony service is running. Time should be synchronized.${NC}"
+                            time_synced=1
+                        fi
+                    fi
                     ;;
             esac
         fi
         
-        # Wait for chrony to sync
-        sleep 3
-        if command -v chronyc &> /dev/null; then
-            if chronyc sources 2>/dev/null | grep -q "^\^\*"; then
-                echo -e "${GREEN}Time synchronized using chrony.${NC}"
-                time_synced=1
-            else
-                # Force chrony to make step adjustment
-                chronyc makestep 2>/dev/null
-                sleep 2
-                if chronyc sources 2>/dev/null | grep -q "^\^\*"; then
-                    echo -e "${GREEN}Time synchronized using chrony.${NC}"
-                    time_synced=1
-                fi
-            fi
-        elif [ -n "$chrony_service" ] && systemctl is-active --quiet "$chrony_service" 2>/dev/null; then
-            echo -e "${GREEN}chrony service is running. Time should be synchronized.${NC}"
-            time_synced=1
-        fi
-    elif command -v ntpd &> /dev/null || command -v ntpdate &> /dev/null; then
-        echo -e "${BLUE}Using NTP for time synchronization...${NC}"
-        if command -v ntpdate &> /dev/null; then
-            if ntpdate -q pool.ntp.org 2>/dev/null || ntpdate -q time.google.com 2>/dev/null || ntpdate -q time.cloudflare.com 2>/dev/null; then
-                echo -e "${GREEN}Time synchronized using ntpdate.${NC}"
-                time_synced=1
-            fi
-        elif command -v ntpd &> /dev/null; then
-            if ! systemctl is-active --quiet ntpd 2>/dev/null; then
-                systemctl start ntpd 2>/dev/null
-                sleep 3
-            fi
-            if ntpq -p 2>/dev/null | grep -q "^\*"; then
-                echo -e "${GREEN}Time synchronized using ntpd.${NC}"
-                time_synced=1
-            fi
-        fi
-    else
-        # Try to install chrony or ntp
-        echo -e "${YELLOW}NTP tools not found. Attempting to install...${NC}"
-        case $PKG_MANAGER in
-            apt)
-                if install_package "chrony"; then
-                    local chrony_service="chrony"
-                    systemctl enable chrony 2>/dev/null || systemctl enable chronyd 2>/dev/null
-                    systemctl start chrony 2>/dev/null || systemctl start chronyd 2>/dev/null
-                    if systemctl is-active --quiet chronyd 2>/dev/null; then
-                        chrony_service="chronyd"
-                    fi
-                    sleep 3
-                    if command -v chronyc &> /dev/null; then
-                        chronyc makestep 2>/dev/null
-                        if chronyc sources 2>/dev/null | grep -q "^\^\*"; then
-                            echo -e "${GREEN}Time synchronized using chrony.${NC}"
-                            time_synced=1
+        # Method 2: Fallback to HTTP time API
+        if [ $time_synced -eq 0 ]; then
+            echo -e "${YELLOW}NTP synchronization failed or unavailable. Trying HTTP time API...${NC}"
+            
+            local utc_time=""
+            local http_sources=(
+                "https://worldtimeapi.org/api/timezone/UTC"
+                "https://timeapi.io/api/Time/current/zone?timeZone=UTC"
+                "https://time.cloudflare.com/api/time"
+            )
+            
+            for source in "${http_sources[@]}"; do
+                echo -e "${BLUE}Trying $source...${NC}"
+                if command -v curl &> /dev/null; then
+                    # Try worldtimeapi.org format
+                    if [[ "$source" == *"worldtimeapi.org"* ]]; then
+                        utc_time=$(curl -s "$source" | grep -oP '"datetime":"\K[^"]+' | head -1)
+                        if [ -n "$utc_time" ]; then
+                            # Convert ISO 8601 to format suitable for date command
+                            utc_time=$(echo "$utc_time" | sed 's/T/ /' | sed 's/\.[0-9]*//')
+                            break
                         fi
-                    elif systemctl is-active --quiet "$chrony_service" 2>/dev/null; then
-                        echo -e "${GREEN}chrony service is running. Time should be synchronized.${NC}"
-                        time_synced=1
-                    fi
-                fi
-                ;;
-            yum|dnf)
-                if install_package "chrony"; then
-                    systemctl enable chronyd
-                    systemctl start chronyd
-                    sleep 3
-                    if command -v chronyc &> /dev/null; then
-                        chronyc makestep 2>/dev/null
-                        if chronyc sources 2>/dev/null | grep -q "^\^\*"; then
-                            echo -e "${GREEN}Time synchronized using chrony.${NC}"
-                            time_synced=1
+                    # Try timeapi.io format
+                    elif [[ "$source" == *"timeapi.io"* ]]; then
+                        utc_time=$(curl -s "$source" | grep -oP '"dateTime":"\K[^"]+' | head -1)
+                        if [ -n "$utc_time" ]; then
+                            utc_time=$(echo "$utc_time" | sed 's/T/ /' | sed 's/\.[0-9]*//')
+                            break
                         fi
-                    elif systemctl is-active --quiet chronyd 2>/dev/null; then
-                        echo -e "${GREEN}chrony service is running. Time should be synchronized.${NC}"
-                        time_synced=1
-                    fi
-                fi
-                ;;
-            pacman)
-                if install_package "chrony"; then
-                    systemctl enable chronyd
-                    systemctl start chronyd
-                    sleep 3
-                    if command -v chronyc &> /dev/null; then
-                        chronyc makestep 2>/dev/null
-                        if chronyc sources 2>/dev/null | grep -q "^\^\*"; then
-                            echo -e "${GREEN}Time synchronized using chrony.${NC}"
-                            time_synced=1
+                    # Try cloudflare format (returns timestamp in nanoseconds)
+                    elif [[ "$source" == *"cloudflare.com"* ]]; then
+                        local response=$(curl -s "$source")
+                        local timestamp=$(echo "$response" | grep -oE '"[0-9]+"' | head -1 | tr -d '"')
+                        if [ -n "$timestamp" ] && [ "$timestamp" -gt 1000000000 ]; then
+                            # Convert nanoseconds to seconds if needed
+                            if [ "$timestamp" -gt 1000000000000000000 ]; then
+                                timestamp=$((timestamp / 1000000000))
+                            fi
+                            # Try GNU date first, then BSD date
+                            utc_time=$(date -u -d "@$timestamp" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -u -r "$timestamp" '+%Y-%m-%d %H:%M:%S' 2>/dev/null)
+                            if [ -n "$utc_time" ] && [ "$utc_time" != "1970-01-01 00:00:00" ]; then
+                                break
+                            fi
                         fi
-                    elif systemctl is-active --quiet chronyd 2>/dev/null; then
-                        echo -e "${GREEN}chrony service is running. Time should be synchronized.${NC}"
-                        time_synced=1
                     fi
-                fi
-                ;;
-        esac
-    fi
-    
-    # Method 2: Fallback to HTTP time API
-    if [ $time_synced -eq 0 ]; then
-        echo -e "${YELLOW}NTP synchronization failed or unavailable. Trying HTTP time API...${NC}"
-        
-        local utc_time=""
-        local http_sources=(
-            "https://worldtimeapi.org/api/timezone/UTC"
-            "https://timeapi.io/api/Time/current/zone?timeZone=UTC"
-            "https://time.cloudflare.com/api/time"
-        )
-        
-        for source in "${http_sources[@]}"; do
-            echo -e "${BLUE}Trying $source...${NC}"
-            if command -v curl &> /dev/null; then
-                # Try worldtimeapi.org format
-                if [[ "$source" == *"worldtimeapi.org"* ]]; then
-                    utc_time=$(curl -s "$source" | grep -oP '"datetime":"\K[^"]+' | head -1)
-                    if [ -n "$utc_time" ]; then
-                        # Convert ISO 8601 to format suitable for date command
-                        utc_time=$(echo "$utc_time" | sed 's/T/ /' | sed 's/\.[0-9]*//')
-                        break
-                    fi
-                # Try timeapi.io format
-                elif [[ "$source" == *"timeapi.io"* ]]; then
-                    utc_time=$(curl -s "$source" | grep -oP '"dateTime":"\K[^"]+' | head -1)
-                    if [ -n "$utc_time" ]; then
-                        utc_time=$(echo "$utc_time" | sed 's/T/ /' | sed 's/\.[0-9]*//')
-                        break
-                    fi
-                # Try cloudflare format (returns timestamp in nanoseconds)
-                elif [[ "$source" == *"cloudflare.com"* ]]; then
-                    local response=$(curl -s "$source")
-                    local timestamp=$(echo "$response" | grep -oE '"[0-9]+"' | head -1 | tr -d '"')
-                    if [ -n "$timestamp" ] && [ "$timestamp" -gt 1000000000 ]; then
-                        # Convert nanoseconds to seconds if needed
-                        if [ "$timestamp" -gt 1000000000000000000 ]; then
-                            timestamp=$((timestamp / 1000000000))
-                        fi
-                        # Try GNU date first, then BSD date
-                        utc_time=$(date -u -d "@$timestamp" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -u -r "$timestamp" '+%Y-%m-%d %H:%M:%S' 2>/dev/null)
-                        if [ -n "$utc_time" ] && [ "$utc_time" != "1970-01-01 00:00:00" ]; then
+                elif command -v wget &> /dev/null; then
+                    if [[ "$source" == *"worldtimeapi.org"* ]]; then
+                        utc_time=$(wget -qO- "$source" | grep -oP '"datetime":"\K[^"]+' | head -1)
+                        if [ -n "$utc_time" ]; then
+                            utc_time=$(echo "$utc_time" | sed 's/T/ /' | sed 's/\.[0-9]*//')
                             break
                         fi
                     fi
                 fi
-            elif command -v wget &> /dev/null; then
-                if [[ "$source" == *"worldtimeapi.org"* ]]; then
-                    utc_time=$(wget -qO- "$source" | grep -oP '"datetime":"\K[^"]+' | head -1)
-                    if [ -n "$utc_time" ]; then
-                        utc_time=$(echo "$utc_time" | sed 's/T/ /' | sed 's/\.[0-9]*//')
-                        break
-                    fi
+            done
+            
+            if [ -n "$utc_time" ]; then
+                # Set system time (requires root)
+                if date -u -s "$utc_time" 2>/dev/null || date -u "$utc_time" 2>/dev/null; then
+                    # Sync hardware clock
+                    hwclock --systohc 2>/dev/null || hwclock -w 2>/dev/null || true
+                    echo -e "${GREEN}Time synchronized using HTTP time API: $utc_time UTC${NC}"
+                    time_synced=1
+                else
+                    echo -e "${RED}Failed to set system time.${NC}"
                 fi
-            fi
-        done
-        
-        if [ -n "$utc_time" ]; then
-            # Set system time (requires root)
-            if date -u -s "$utc_time" 2>/dev/null || date -u "$utc_time" 2>/dev/null; then
-                # Sync hardware clock
-                hwclock --systohc 2>/dev/null || hwclock -w 2>/dev/null || true
-                echo -e "${GREEN}Time synchronized using HTTP time API: $utc_time UTC${NC}"
-                time_synced=1
             else
-                echo -e "${RED}Failed to set system time.${NC}"
+                echo -e "${RED}Failed to fetch time from HTTP sources.${NC}"
             fi
-        else
-            echo -e "${RED}Failed to fetch time from HTTP sources.${NC}"
-        fi
-    fi
-    
-    # Set timezone to UTC
-    if [ $time_synced -eq 1 ]; then
-        echo -e "${BLUE}Setting timezone to UTC...${NC}"
-        if command -v timedatectl &> /dev/null; then
-            timedatectl set-timezone UTC 2>/dev/null && echo -e "${GREEN}Timezone set to UTC.${NC}" || echo -e "${YELLOW}Could not set timezone automatically.${NC}"
-        elif [ -f /etc/localtime ]; then
-            backup_file "/etc/localtime"
-            ln -sf /usr/share/zoneinfo/UTC /etc/localtime 2>/dev/null && echo -e "${GREEN}Timezone set to UTC.${NC}" || echo -e "${YELLOW}Could not set timezone automatically.${NC}"
-        fi
         
-        # Display current time
-        echo -e "${GREEN}Current system time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')${NC}"
+        if [ $time_synced -eq 1 ]; then
+            # Display current time
+            echo -e "${GREEN}Time synchronized successfully.${NC}"
+            echo -e "${GREEN}Current system time: $(date)${NC}"
+        else
+            echo -e "${YELLOW}Time synchronization failed, but timezone has been set.${NC}"
+            echo -e "${GREEN}Current system time: $(date)${NC}"
+        fi
     else
-        echo -e "${RED}Time synchronization failed. Please check your network connection and try again.${NC}"
-        return 1
+        echo -e "${BLUE}Skipping time synchronization.${NC}"
     fi
 }
 
