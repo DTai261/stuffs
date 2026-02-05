@@ -19,6 +19,9 @@ INSTALL_CMD=""
 UPDATE_CMD=""
 UPGRADE_CMD=""
 
+# Script directory (for relative paths like Configs/.tmux.conf)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+
 # Detect OS and package manager
 detect_os() {
     if [ -f /etc/os-release ]; then
@@ -1022,6 +1025,7 @@ sync_system_time() {
             else
                 echo -e "${RED}Failed to fetch time from HTTP sources.${NC}"
             fi
+        fi
         
         if [ $time_synced -eq 1 ]; then
             # Display current time
@@ -1036,6 +1040,77 @@ sync_system_time() {
     fi
 }
 
+# Configure tmux for a specific user
+configure_tmux() {
+    read -p "Enter username to configure tmux for: " username
+
+    if [ -z "$username" ]; then
+        echo -e "${RED}Username cannot be empty.${NC}"
+        return 1
+    fi
+
+    if ! id "$username" &>/dev/null; then
+        echo -e "${RED}User $username does not exist.${NC}"
+        return 1
+    fi
+
+    local home_dir
+    if [ "$username" = "root" ]; then
+        home_dir="/root"
+    else
+        home_dir="/home/$username"
+    fi
+
+    # Ensure tmux and git are installed
+    install_package "tmux"
+    install_package "git"
+
+    # Install TPM (Tmux Plugin Manager) for this user
+    local tpm_dir="$home_dir/.tmux/plugins/tpm"
+    if [ -d "$tpm_dir/.git" ]; then
+        echo -e "${YELLOW}TPM already installed for user $username.${NC}"
+    else
+        echo -e "${BLUE}Cloning TPM for user $username...${NC}"
+        sudo -u "$username" git clone https://github.com/tmux-plugins/tpm "$tpm_dir" 2>/dev/null || {
+            echo -e "${RED}Failed to clone TPM for user $username.${NC}"
+        }
+    fi
+
+    # Source config template from script directory
+    local config_src="$SCRIPT_DIR/Configs/.tmux.conf"
+    if [ ! -f "$config_src" ]; then
+        echo -e "${RED}Tmux config template not found at $config_src${NC}"
+        return 1
+    fi
+
+    local tmux_conf="$home_dir/.tmux.conf"
+
+    # Backup existing tmux.conf if present (move to .bak as requested)
+    if [ -f "$tmux_conf" ]; then
+        local backup_path="$tmux_conf.bak"
+        if [ -f "$backup_path" ]; then
+            backup_path="${tmux_conf}.bak_$(date +%d%m%y)"
+        fi
+        mv "$tmux_conf" "$backup_path"
+        echo -e "${GREEN}Existing tmux config moved to $backup_path${NC}"
+    fi
+
+    # Copy new config
+    cp "$config_src" "$tmux_conf"
+    chown "$username:$username" "$tmux_conf"
+    chmod 644 "$tmux_conf"
+    echo -e "${GREEN}Tmux config applied for user $username.${NC}"
+
+    # Reload tmux config if the user has an active tmux session
+    if sudo -u "$username" tmux list-sessions >/dev/null 2>&1; then
+        sudo -u "$username" tmux source-file "$tmux_conf" >/dev/null 2>&1 && \
+        sudo -u "$username" tmux display-message "tmux config reloaded" >/dev/null 2>&1
+        echo -e "${GREEN}Tmux configuration reloaded for user $username.${NC}"
+    else
+        echo -e "${YELLOW}No active tmux session found for user $username. Config will be used next time tmux starts.${NC}"
+    fi
+}
+
 # Misc menu
 misc_menu() {
     while true; do
@@ -1045,8 +1120,9 @@ misc_menu() {
         echo "3) Change hostname"
         echo "4) Install packages"
         echo "5) Sync system date/time"
-        echo "6) Back to main menu"
-        read -p "Choose option [1-6]: " misc_option
+        echo "6) Configure Tmux"
+        echo "7) Back to main menu"
+        read -p "Choose option [1-7]: " misc_option
         
         case $misc_option in
             1) update_system ;;
@@ -1054,7 +1130,8 @@ misc_menu() {
             3) change_hostname ;;
             4) install_packages_menu ;;
             5) sync_system_time ;;
-            6) break ;;
+            6) configure_tmux ;;
+            7) break ;;
             *) echo -e "${RED}Invalid option.${NC}" ;;
         esac
     done
