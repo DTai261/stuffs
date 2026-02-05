@@ -1,3 +1,100 @@
+# Print system information
+print_system_info() {
+    echo -e "${BLUE}=== System Information ===${NC}"
+
+    # Hostname
+    echo -e "${GREEN}Hostname:${NC} $(hostname)"
+
+    # OS and kernel
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        echo -e "${GREEN}OS:${NC} ${PRETTY_NAME:-$NAME}"
+    fi
+    echo -e "${GREEN}Kernel:${NC} $(uname -r)"
+
+    # Uptime
+    if command -v uptime &>/dev/null; then
+        echo -e "${GREEN}Uptime:${NC} $(uptime -p 2>/dev/null || uptime)"
+    fi
+
+    # CPU info
+    if command -v lscpu &>/dev/null; then
+        local cpu_model
+        cpu_model=$(lscpu | awk -F: '/Model name/ {gsub(/^ +/, "", $2); print $2; exit}')
+        local cpu_cores
+        cpu_cores=$(lscpu | awk -F: '/^CPU\\(s\\)/ {gsub(/^ +/, "", $2); print $2; exit}')
+        [ -n "$cpu_model" ] && echo -e "${GREEN}CPU:${NC} $cpu_model"
+        [ -n "$cpu_cores" ] && echo -e "${GREEN}CPU Cores:${NC} $cpu_cores"
+    elif [ -f /proc/cpuinfo ]; then
+        local cpu_model
+        cpu_model=$(grep -m1 'model name' /proc/cpuinfo | awk -F: '{gsub(/^ +/, "", $2); print $2}')
+        local cpu_cores
+        cpu_cores=$(grep -c '^processor' /proc/cpuinfo)
+        [ -n "$cpu_model" ] && echo -e "${GREEN}CPU:${NC} $cpu_model"
+        [ -n "$cpu_cores" ] && echo -e "${GREEN}CPU Cores:${NC} $cpu_cores"
+    fi
+
+    # RAM info
+    if command -v free &>/dev/null; then
+        local mem_total mem_used mem_free
+        read -r _ mem_total mem_used mem_free _ < <(free -m | awk '/^Mem:/ {print $1, $2, $3, $4}')
+        echo -e "${GREEN}RAM Total:${NC} ${mem_total}MB"
+        echo -e "${GREEN}RAM Used:${NC} ${mem_used}MB"
+        echo -e "${GREEN}RAM Free:${NC} ${mem_free}MB"
+    elif [ -f /proc/meminfo ]; then
+        local mem_total_kb mem_free_kb
+        mem_total_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+        mem_free_kb=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
+        if [ -n "$mem_total_kb" ]; then
+            echo -e "${GREEN}RAM Total:${NC} $((mem_total_kb / 1024))MB"
+        fi
+        if [ -n "$mem_free_kb" ]; then
+            echo -e "${GREEN}RAM Available:${NC} $((mem_free_kb / 1024))MB"
+        fi
+    fi
+
+    # Disk usage for root filesystem
+    if command -v df &>/dev/null; then
+        local disk_info
+        disk_info=$(df -h / | awk 'NR==2 {print $2, $3, $4, $5}')
+        local disk_total disk_used disk_avail disk_use
+        read -r disk_total disk_used disk_avail disk_use <<<"$disk_info"
+        echo -e "${GREEN}Disk (root /):${NC} total=$disk_total, used=$disk_used, free=$disk_avail, use%=$disk_use"
+    fi
+
+    # IP addresses
+    local ip_eth0=""
+    local ip_primary=""
+
+    if command -v ip &>/dev/null; then
+        ip_eth0=$(ip -4 addr show eth0 2>/dev/null | awk '/inet / {print $2}' | cut -d/ -f1 | head -1)
+        ip_primary=$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1;i<=NF;i++) if ($i=="src") {print $(i+1); exit}}')
+    else
+        ip_eth0=$(ifconfig eth0 2>/dev/null | awk '/inet / {print $2}' | head -1)
+        ip_primary=$(hostname -I 2>/dev/null | awk '{print $1}')
+    fi
+
+    if [ -n "$ip_eth0" ]; then
+        echo -e "${GREEN}IP (eth0):${NC} $ip_eth0"
+    else
+        echo -e "${YELLOW}IP (eth0):${NC} not found or interface does not exist."
+    fi
+
+    if [ -n "$ip_primary" ] && [ "$ip_primary" != "$ip_eth0" ]; then
+        echo -e "${GREEN}Primary IP:${NC} $ip_primary"
+    fi
+
+    # Public IP (optional)
+    if command -v curl &>/dev/null; then
+        local public_ip
+        public_ip=$(curl -s --max-time 2 https://ifconfig.me 2>/dev/null || true)
+        if [ -n "$public_ip" ]; then
+            echo -e "${GREEN}Public IP:${NC} $public_ip"
+        fi
+    fi
+
+    echo -e "${BLUE}=========================${NC}"
+}
 #!/bin/bash
 
 # VPS Setup Script
@@ -1289,6 +1386,9 @@ main() {
     echo -e "${BLUE}Detecting OS...${NC}"
     detect_os
     echo -e "${GREEN}Detected OS: $OS_TYPE (Package Manager: $PKG_MANAGER)${NC}"
+
+    # Show basic system information
+    print_system_info
     
     main_menu
 }
