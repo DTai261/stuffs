@@ -89,15 +89,51 @@ is_package_installed() {
     
     case $PKG_MANAGER in
         apt)
-            dpkg -l | grep -q "^ii  $package " && return 0 || return 1
+            # Use dpkg-query which is more reliable than grep on dpkg -l
+            if dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "install ok installed"; then
+                return 0
+            fi
+            # Fallback: check if binary exists (for packages like python3 -> python3 command)
+            local bin_name=$(basename "$package" 2>/dev/null)
+            if command -v "$bin_name" &> /dev/null; then
+                return 0
+            fi
+            return 1
             ;;
         yum|dnf)
-            rpm -q "$package" &> /dev/null && return 0 || return 1
+            if rpm -q "$package" &> /dev/null; then
+                return 0
+            fi
+            # Fallback: check if binary exists
+            local bin_name=$(basename "$package" 2>/dev/null)
+            if command -v "$bin_name" &> /dev/null; then
+                return 0
+            fi
+            return 1
             ;;
         pacman)
-            pacman -Qi "$package" &> /dev/null && return 0 || return 1
+            if pacman -Qi "$package" &> /dev/null; then
+                return 0
+            fi
+            # Fallback: check if binary exists
+            local bin_name=$(basename "$package" 2>/dev/null)
+            if command -v "$bin_name" &> /dev/null; then
+                return 0
+            fi
+            return 1
             ;;
     esac
+}
+
+# Check if any package in a space-separated list is installed
+is_any_package_installed() {
+    local package_list="$1"
+    for pkg in $package_list; do
+        if is_package_installed "$pkg"; then
+            return 0
+        fi
+    done
+    return 1
 }
 
 # Install package
@@ -338,7 +374,164 @@ install_packages_menu() {
     local package_keys=()
     for key in "${!packages[@]}"; do
         printf "%2d) %-20s" "$i" "$key"
-        if is_package_installed "${packages[$key]%% *}"; then
+        local pkg_value="${packages[$key]}"
+        local is_installed=0
+        
+        # Check if any package in the list is installed (handles multi-package entries)
+        if is_any_package_installed "$pkg_value"; then
+            is_installed=1
+        else
+            # Also check common binary names that might differ from package names
+            case $key in
+                curl)
+                    if command -v curl &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                wget)
+                    if command -v wget &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                nano)
+                    if command -v nano &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                vim)
+                    if command -v vim &> /dev/null || command -v vi &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                git)
+                    if command -v git &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                python3)
+                    if command -v python3 &> /dev/null || command -v python &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                python3-pip)
+                    if command -v pip3 &> /dev/null || command -v pip &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                go)
+                    if command -v go &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                nodejs)
+                    if command -v node &> /dev/null || command -v nodejs &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                npm)
+                    if command -v npm &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                docker)
+                    if command -v docker &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                docker-compose)
+                    if command -v docker-compose &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                nginx)
+                    if command -v nginx &> /dev/null || systemctl is-active --quiet nginx 2>/dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                apache2)
+                    if command -v apache2 &> /dev/null || command -v httpd &> /dev/null || systemctl is-active --quiet apache2 2>/dev/null || systemctl is-active --quiet httpd 2>/dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                postgresql)
+                    if command -v psql &> /dev/null || systemctl is-active --quiet postgresql 2>/dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                mysql-server)
+                    if command -v mysql &> /dev/null || systemctl is-active --quiet mysql 2>/dev/null || systemctl is-active --quiet mysqld 2>/dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                net-tools)
+                    if command -v ifconfig &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                build-essential)
+                    if command -v gcc &> /dev/null || command -v make &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                htop)
+                    if command -v htop &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                tmux)
+                    if command -v tmux &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                unzip)
+                    if command -v unzip &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                zip)
+                    if command -v zip &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                tree)
+                    if command -v tree &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                jq)
+                    if command -v jq &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                rsync)
+                    if command -v rsync &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                ufw)
+                    if command -v ufw &> /dev/null || systemctl is-active --quiet ufw 2>/dev/null || systemctl is-active --quiet firewalld 2>/dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                fail2ban)
+                    if command -v fail2ban-client &> /dev/null || systemctl is-active --quiet fail2ban 2>/dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                certbot)
+                    if command -v certbot &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                openssh-server)
+                    if systemctl is-active --quiet ssh 2>/dev/null || systemctl is-active --quiet sshd 2>/dev/null || [ -f /etc/ssh/sshd_config ]; then
+                        is_installed=1
+                    fi
+                    ;;
+            esac
+        fi
+        
+        if [ $is_installed -eq 1 ]; then
             echo -e " ${GREEN}[INSTALLED]${NC}"
         else
             echo -e " ${YELLOW}[NOT INSTALLED]${NC}"
@@ -373,6 +566,236 @@ install_packages_menu() {
     fi
 }
 
+# Sync system time
+sync_system_time() {
+    echo -e "${BLUE}Syncing system time with UTC...${NC}"
+    
+    local time_synced=0
+    
+    # Method 1: Try NTP synchronization (chrony preferred, then ntp)
+    if command -v chronyd &> /dev/null || command -v chrony &> /dev/null || command -v chronyc &> /dev/null; then
+        echo -e "${BLUE}Using chrony for time synchronization...${NC}"
+        local chrony_service=""
+        if systemctl list-units --type=service 2>/dev/null | grep -q "chronyd.service"; then
+            chrony_service="chronyd"
+        elif systemctl list-units --type=service 2>/dev/null | grep -q "chrony.service"; then
+            chrony_service="chrony"
+        fi
+        
+        if [ -z "$chrony_service" ] || ! systemctl is-active --quiet "$chrony_service" 2>/dev/null; then
+            echo -e "${YELLOW}chrony service not running. Installing and starting chrony...${NC}"
+            case $PKG_MANAGER in
+                apt)
+                    install_package "chrony"
+                    chrony_service="chrony"
+                    systemctl enable chrony 2>/dev/null || systemctl enable chronyd 2>/dev/null
+                    systemctl start chrony 2>/dev/null || systemctl start chronyd 2>/dev/null
+                    if systemctl is-active --quiet chronyd 2>/dev/null; then
+                        chrony_service="chronyd"
+                    fi
+                    ;;
+                yum|dnf)
+                    install_package "chrony"
+                    chrony_service="chronyd"
+                    systemctl enable chronyd
+                    systemctl start chronyd
+                    ;;
+                pacman)
+                    install_package "chrony"
+                    chrony_service="chronyd"
+                    systemctl enable chronyd
+                    systemctl start chronyd
+                    ;;
+            esac
+        fi
+        
+        # Wait for chrony to sync
+        sleep 3
+        if command -v chronyc &> /dev/null; then
+            if chronyc sources 2>/dev/null | grep -q "^\^\*"; then
+                echo -e "${GREEN}Time synchronized using chrony.${NC}"
+                time_synced=1
+            else
+                # Force chrony to make step adjustment
+                chronyc makestep 2>/dev/null
+                sleep 2
+                if chronyc sources 2>/dev/null | grep -q "^\^\*"; then
+                    echo -e "${GREEN}Time synchronized using chrony.${NC}"
+                    time_synced=1
+                fi
+            fi
+        elif [ -n "$chrony_service" ] && systemctl is-active --quiet "$chrony_service" 2>/dev/null; then
+            echo -e "${GREEN}chrony service is running. Time should be synchronized.${NC}"
+            time_synced=1
+        fi
+    elif command -v ntpd &> /dev/null || command -v ntpdate &> /dev/null; then
+        echo -e "${BLUE}Using NTP for time synchronization...${NC}"
+        if command -v ntpdate &> /dev/null; then
+            if ntpdate -q pool.ntp.org 2>/dev/null || ntpdate -q time.google.com 2>/dev/null || ntpdate -q time.cloudflare.com 2>/dev/null; then
+                echo -e "${GREEN}Time synchronized using ntpdate.${NC}"
+                time_synced=1
+            fi
+        elif command -v ntpd &> /dev/null; then
+            if ! systemctl is-active --quiet ntpd 2>/dev/null; then
+                systemctl start ntpd 2>/dev/null
+                sleep 3
+            fi
+            if ntpq -p 2>/dev/null | grep -q "^\*"; then
+                echo -e "${GREEN}Time synchronized using ntpd.${NC}"
+                time_synced=1
+            fi
+        fi
+    else
+        # Try to install chrony or ntp
+        echo -e "${YELLOW}NTP tools not found. Attempting to install...${NC}"
+        case $PKG_MANAGER in
+            apt)
+                if install_package "chrony"; then
+                    local chrony_service="chrony"
+                    systemctl enable chrony 2>/dev/null || systemctl enable chronyd 2>/dev/null
+                    systemctl start chrony 2>/dev/null || systemctl start chronyd 2>/dev/null
+                    if systemctl is-active --quiet chronyd 2>/dev/null; then
+                        chrony_service="chronyd"
+                    fi
+                    sleep 3
+                    if command -v chronyc &> /dev/null; then
+                        chronyc makestep 2>/dev/null
+                        if chronyc sources 2>/dev/null | grep -q "^\^\*"; then
+                            echo -e "${GREEN}Time synchronized using chrony.${NC}"
+                            time_synced=1
+                        fi
+                    elif systemctl is-active --quiet "$chrony_service" 2>/dev/null; then
+                        echo -e "${GREEN}chrony service is running. Time should be synchronized.${NC}"
+                        time_synced=1
+                    fi
+                fi
+                ;;
+            yum|dnf)
+                if install_package "chrony"; then
+                    systemctl enable chronyd
+                    systemctl start chronyd
+                    sleep 3
+                    if command -v chronyc &> /dev/null; then
+                        chronyc makestep 2>/dev/null
+                        if chronyc sources 2>/dev/null | grep -q "^\^\*"; then
+                            echo -e "${GREEN}Time synchronized using chrony.${NC}"
+                            time_synced=1
+                        fi
+                    elif systemctl is-active --quiet chronyd 2>/dev/null; then
+                        echo -e "${GREEN}chrony service is running. Time should be synchronized.${NC}"
+                        time_synced=1
+                    fi
+                fi
+                ;;
+            pacman)
+                if install_package "chrony"; then
+                    systemctl enable chronyd
+                    systemctl start chronyd
+                    sleep 3
+                    if command -v chronyc &> /dev/null; then
+                        chronyc makestep 2>/dev/null
+                        if chronyc sources 2>/dev/null | grep -q "^\^\*"; then
+                            echo -e "${GREEN}Time synchronized using chrony.${NC}"
+                            time_synced=1
+                        fi
+                    elif systemctl is-active --quiet chronyd 2>/dev/null; then
+                        echo -e "${GREEN}chrony service is running. Time should be synchronized.${NC}"
+                        time_synced=1
+                    fi
+                fi
+                ;;
+        esac
+    fi
+    
+    # Method 2: Fallback to HTTP time API
+    if [ $time_synced -eq 0 ]; then
+        echo -e "${YELLOW}NTP synchronization failed or unavailable. Trying HTTP time API...${NC}"
+        
+        local utc_time=""
+        local http_sources=(
+            "https://worldtimeapi.org/api/timezone/UTC"
+            "https://timeapi.io/api/Time/current/zone?timeZone=UTC"
+            "https://time.cloudflare.com/api/time"
+        )
+        
+        for source in "${http_sources[@]}"; do
+            echo -e "${BLUE}Trying $source...${NC}"
+            if command -v curl &> /dev/null; then
+                # Try worldtimeapi.org format
+                if [[ "$source" == *"worldtimeapi.org"* ]]; then
+                    utc_time=$(curl -s "$source" | grep -oP '"datetime":"\K[^"]+' | head -1)
+                    if [ -n "$utc_time" ]; then
+                        # Convert ISO 8601 to format suitable for date command
+                        utc_time=$(echo "$utc_time" | sed 's/T/ /' | sed 's/\.[0-9]*//')
+                        break
+                    fi
+                # Try timeapi.io format
+                elif [[ "$source" == *"timeapi.io"* ]]; then
+                    utc_time=$(curl -s "$source" | grep -oP '"dateTime":"\K[^"]+' | head -1)
+                    if [ -n "$utc_time" ]; then
+                        utc_time=$(echo "$utc_time" | sed 's/T/ /' | sed 's/\.[0-9]*//')
+                        break
+                    fi
+                # Try cloudflare format (returns timestamp in nanoseconds)
+                elif [[ "$source" == *"cloudflare.com"* ]]; then
+                    local response=$(curl -s "$source")
+                    local timestamp=$(echo "$response" | grep -oE '"[0-9]+"' | head -1 | tr -d '"')
+                    if [ -n "$timestamp" ] && [ "$timestamp" -gt 1000000000 ]; then
+                        # Convert nanoseconds to seconds if needed
+                        if [ "$timestamp" -gt 1000000000000000000 ]; then
+                            timestamp=$((timestamp / 1000000000))
+                        fi
+                        # Try GNU date first, then BSD date
+                        utc_time=$(date -u -d "@$timestamp" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -u -r "$timestamp" '+%Y-%m-%d %H:%M:%S' 2>/dev/null)
+                        if [ -n "$utc_time" ] && [ "$utc_time" != "1970-01-01 00:00:00" ]; then
+                            break
+                        fi
+                    fi
+                fi
+            elif command -v wget &> /dev/null; then
+                if [[ "$source" == *"worldtimeapi.org"* ]]; then
+                    utc_time=$(wget -qO- "$source" | grep -oP '"datetime":"\K[^"]+' | head -1)
+                    if [ -n "$utc_time" ]; then
+                        utc_time=$(echo "$utc_time" | sed 's/T/ /' | sed 's/\.[0-9]*//')
+                        break
+                    fi
+                fi
+            fi
+        done
+        
+        if [ -n "$utc_time" ]; then
+            # Set system time (requires root)
+            if date -u -s "$utc_time" 2>/dev/null || date -u "$utc_time" 2>/dev/null; then
+                # Sync hardware clock
+                hwclock --systohc 2>/dev/null || hwclock -w 2>/dev/null || true
+                echo -e "${GREEN}Time synchronized using HTTP time API: $utc_time UTC${NC}"
+                time_synced=1
+            else
+                echo -e "${RED}Failed to set system time.${NC}"
+            fi
+        else
+            echo -e "${RED}Failed to fetch time from HTTP sources.${NC}"
+        fi
+    fi
+    
+    # Set timezone to UTC
+    if [ $time_synced -eq 1 ]; then
+        echo -e "${BLUE}Setting timezone to UTC...${NC}"
+        if command -v timedatectl &> /dev/null; then
+            timedatectl set-timezone UTC 2>/dev/null && echo -e "${GREEN}Timezone set to UTC.${NC}" || echo -e "${YELLOW}Could not set timezone automatically.${NC}"
+        elif [ -f /etc/localtime ]; then
+            backup_file "/etc/localtime"
+            ln -sf /usr/share/zoneinfo/UTC /etc/localtime 2>/dev/null && echo -e "${GREEN}Timezone set to UTC.${NC}" || echo -e "${YELLOW}Could not set timezone automatically.${NC}"
+        fi
+        
+        # Display current time
+        echo -e "${GREEN}Current system time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')${NC}"
+    else
+        echo -e "${RED}Time synchronization failed. Please check your network connection and try again.${NC}"
+        return 1
+    fi
+}
+
 # Misc menu
 misc_menu() {
     while true; do
@@ -381,15 +804,17 @@ misc_menu() {
         echo "2) Configure SSH"
         echo "3) Change hostname"
         echo "4) Install packages"
-        echo "5) Back to main menu"
-        read -p "Choose option [1-5]: " misc_option
+        echo "5) Sync system date/time"
+        echo "6) Back to main menu"
+        read -p "Choose option [1-6]: " misc_option
         
         case $misc_option in
             1) update_system ;;
             2) configure_ssh ;;
             3) change_hostname ;;
             4) install_packages_menu ;;
-            5) break ;;
+            5) sync_system_time ;;
+            6) break ;;
             *) echo -e "${RED}Invalid option.${NC}" ;;
         esac
     done
