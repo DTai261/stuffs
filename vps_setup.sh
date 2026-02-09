@@ -1520,7 +1520,7 @@ EOF
     
     # Check container status with detailed output
     echo -e "${BLUE}Checking container status...${NC}"
-    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Health}}"
+    docker ps --format "table {{.Names}}\t{{.Status}}" | grep -E "wp_db|wp_app|wp_nginx|NAMES"
     
     # Check if all containers are running
     local all_running=true
