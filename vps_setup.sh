@@ -1464,16 +1464,25 @@ EOF
     
     # Start containers
     cd "$wp_dir"
-    if docker compose up -d; then
+    local compose_cmd=""
+    
+    # Determine which docker compose command to use
+    if docker compose version &>/dev/null; then
+        compose_cmd="docker compose"
+    elif docker-compose version &>/dev/null; then
+        compose_cmd="docker-compose"
+    else
+        echo -e "${RED}Neither 'docker compose' nor 'docker-compose' is available.${NC}"
+        return 1
+    fi
+    
+    echo -e "${BLUE}Using: $compose_cmd${NC}"
+    
+    if $compose_cmd up -d; then
         echo -e "${GREEN}WordPress started successfully!${NC}"
     else
-        # Fallback to docker-compose for older versions
-        if docker-compose up -d; then
-            echo -e "${GREEN}WordPress started successfully!${NC}"
-        else
-            echo -e "${RED}Failed to start WordPress containers.${NC}"
-            return 1
-        fi
+        echo -e "${RED}Failed to start WordPress containers.${NC}"
+        return 1
     fi
     
     # Wait for containers to be healthy
@@ -1642,7 +1651,7 @@ EOF
         echo -e "${YELLOW}Note: WordPress may need manual setup. Visit the URL above to complete installation.${NC}"
     fi
     echo -e "${YELLOW}Database credentials are stored in:${NC} $wp_dir/.env"
-    echo -e "${YELLOW}To manage containers:${NC} cd $wp_dir && docker compose up -d"
+    echo -e "${YELLOW}To manage containers:${NC} cd $wp_dir && $compose_cmd up -d"
     echo ""
     echo -e "${YELLOW}IMPORTANT: Save the admin credentials above. They will not be shown again!${NC}"
 }
