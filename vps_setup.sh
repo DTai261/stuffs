@@ -1447,10 +1447,8 @@ EOF
         return 1
     fi
     
-    # Replace domain in nginx config
-    sed -e "s/www\.example\.com example\.com/$domain_name/g" \
-        -e "s/www\.example\.com/$domain_name/g" \
-        "$nginx_src" > "$wp_dir/nginx/conf.d/wordpress.conf"
+    # Copy nginx config to WordPress directory
+    cp "$nginx_src" "$wp_dir/nginx/conf.d/wordpress.conf"
     
     # Also update docker-compose.yml to use the domain
     sed -i "s/www\.example\.com/$domain_name/g" "$wp_dir/docker-compose.yml"
@@ -1534,9 +1532,26 @@ EOF
     if [ "$all_running" = true ]; then
         echo -e "${GREEN}All containers are running.${NC}"
     else
-        echo -e "${YELLOW}Some containers failed to start. Showing logs...${NC}"
-        $compose_cmd logs --tail 30
-        return 1
+        echo -e "${YELLOW}Some containers are not running. Attempting restart...${NC}"
+        $compose_cmd restart
+        sleep 10
+        
+        # Check again
+        local retry_ok=true
+        for container in wp_db wp_app wp_nginx; do
+            if ! docker ps | grep -q "$container"; then
+                echo -e "${RED}Container $container still not running!${NC}"
+                echo -e "${YELLOW}Logs for $container:${NC}"
+                docker logs --tail 20 "$container" 2>&1 || true
+                retry_ok=false
+            fi
+        done
+        
+        if [ "$retry_ok" != true ]; then
+            echo -e "${RED}Some containers failed to start. Please check the logs above.${NC}"
+            return 1
+        fi
+        echo -e "${GREEN}All containers are now running.${NC}"
     fi
     
     # Install WP-CLI and configure WordPress
@@ -1547,7 +1562,7 @@ EOF
     local db_ready=0
     local db_retries=0
     while [ $db_ready -eq 0 ] && [ $db_retries -lt 30 ]; do
-        if docker exec wp_db mysqladmin ping -h localhost -u root -p"$db_root_pass" --silent 2>/dev/null; then
+        if docker exec wp_db mariadb-admin ping -h localhost -u root -p"$db_root_pass" --silent 2>/dev/null; then
             db_ready=1
         else
             sleep 2
