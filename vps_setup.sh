@@ -1523,9 +1523,13 @@ EOF
     # Check if all containers are running
     local all_running=true
     for container in wp_db wp_app wp_nginx; do
-        if ! docker ps | grep -q "$container"; then
+        local container_status
+        container_status=$(docker ps --filter "name=$container" --format "{{.Status}}" 2>/dev/null)
+        if [ -z "$container_status" ]; then
             echo -e "${RED}Container $container is not running!${NC}"
             all_running=false
+        else
+            echo -e "${GREEN}Container $container: $container_status${NC}"
         fi
     done
     
@@ -1548,7 +1552,19 @@ EOF
         done
         
         if [ "$retry_ok" != true ]; then
-            echo -e "${RED}Some containers failed to start. Please check the logs above.${NC}"
+            echo -e "${RED}Some containers failed to start.${NC}"
+            echo ""
+            echo -e "${YELLOW}Checking container exit reasons...${NC}"
+            for container in wp_db wp_app wp_nginx; do
+                local exit_code
+                exit_code=$(docker inspect --format='{{.State.ExitCode}}' "$container" 2>/dev/null || echo "unknown")
+                echo -e "${YELLOW}$container exit code: $exit_code${NC}"
+                if [ "$exit_code" != "0" ] && [ "$exit_code" != "unknown" ]; then
+                    echo -e "${YELLOW}Last 30 lines of $container logs:${NC}"
+                    docker logs --tail 30 "$container" 2>&1 || true
+                    echo ""
+                fi
+            done
             return 1
         fi
         echo -e "${GREEN}All containers are now running.${NC}"

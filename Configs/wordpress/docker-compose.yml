@@ -32,12 +32,12 @@ services:
       WORDPRESS_DB_USER: ${MYSQL_USER}
       WORDPRESS_DB_PASSWORD: ${MYSQL_PASSWORD}
       WORDPRESS_CONFIG_EXTRA: define('WP_SITEURL','https://www.example.com'); define('WP_HOME','https://www.example.com'); define('FORCE_SSL_ADMIN',true);
+      # Wait for database to be ready before starting PHP-FPM
+      WORDPRESS_DB_WAIT: "true"
     volumes:
       - ./wordpress:/var/www/html
     networks:
       - wp_internal
-    # Healthcheck disabled - WordPress FPM container starts successfully but healthcheck was unreliable
-    # The container logs show "ready to handle connections" when healthy
 
   nginx:
     image: nginx:stable
