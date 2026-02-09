@@ -1478,22 +1478,51 @@ EOF
     
     echo -e "${BLUE}Using: $compose_cmd${NC}"
     
+    # Stop and remove any existing containers to ensure clean start
+    echo -e "${BLUE}Cleaning up any existing containers...${NC}"
+    $compose_cmd down --remove-orphans 2>/dev/null || true
+    
+    # Remove any existing WordPress containers that might be stuck
+    docker rm -f wp_db wp_app wp_nginx 2>/dev/null || true
+    
+    # Pull latest images
+    echo -e "${BLUE}Pulling latest Docker images...${NC}"
+    $compose_cmd pull
+    
+    # Start containers
+    echo -e "${BLUE}Starting containers...${NC}"
     if $compose_cmd up -d; then
-        echo -e "${GREEN}WordPress started successfully!${NC}"
+        echo -e "${GREEN}WordPress containers started.${NC}"
     else
         echo -e "${RED}Failed to start WordPress containers.${NC}"
+        echo -e "${YELLOW}Checking container logs...${NC}"
+        $compose_cmd logs --tail 50
         return 1
     fi
     
     # Wait for containers to be healthy
     echo -e "${BLUE}Waiting for containers to be ready...${NC}"
-    sleep 10
+    sleep 15
     
-    # Check container status
-    if docker ps | grep -q "wp_db" && docker ps | grep -q "wp_app" && docker ps | grep -q "wp_nginx"; then
+    # Check container status with detailed output
+    echo -e "${BLUE}Checking container status...${NC}"
+    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Health}}"
+    
+    # Check if all containers are running
+    local all_running=true
+    for container in wp_db wp_app wp_nginx; do
+        if ! docker ps | grep -q "$container"; then
+            echo -e "${RED}Container $container is not running!${NC}"
+            all_running=false
+        fi
+    done
+    
+    if [ "$all_running" = true ]; then
         echo -e "${GREEN}All containers are running.${NC}"
     else
-        echo -e "${YELLOW}Some containers may still be starting. Check with 'docker ps'.${NC}"
+        echo -e "${YELLOW}Some containers failed to start. Showing logs...${NC}"
+        $compose_cmd logs --tail 30
+        return 1
     fi
     
     # Install WP-CLI and configure WordPress
