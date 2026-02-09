@@ -1485,6 +1485,20 @@ EOF
     # Remove any existing WordPress containers that might be stuck
     docker rm -f wp_db wp_app wp_nginx 2>/dev/null || true
     
+    # Check if database directory exists and may have corrupted files
+    if [ -d "$wp_dir/db" ] && [ "$(ls -A $wp_dir/db 2>/dev/null)" ]; then
+        echo -e "${YELLOW}Existing database directory found. It may contain corrupted data from a previous failed start.${NC}"
+        read -p "Do you want to remove the existing database and start fresh? [y/N]: " clean_db
+        if [[ "$clean_db" =~ ^[Yy]$ ]]; then
+            echo -e "${BLUE}Removing existing database directory...${NC}"
+            rm -rf "$wp_dir/db"/*
+            rm -rf "$wp_dir/db"/.* 2>/dev/null || true
+            echo -e "${GREEN}Database directory cleaned.${NC}"
+        else
+            echo -e "${YELLOW}Keeping existing database. Note: If the database is corrupted, the container will fail to start.${NC}"
+        fi
+    fi
+    
     # Pull latest images
     echo -e "${BLUE}Pulling latest Docker images...${NC}"
     $compose_cmd pull
