@@ -1,0 +1,74 @@
+version: "3.8"
+
+services:
+  db:
+    image: mariadb:11
+    container_name: wp_db
+    restart: always
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - ./db:/var/lib/mysql
+    networks:
+      - wp_internal
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  wordpress:
+    image: wordpress:php8.2-fpm
+    container_name: wp_app
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_NAME: ${MYSQL_DATABASE}
+      WORDPRESS_DB_USER: ${MYSQL_USER}
+      WORDPRESS_DB_PASSWORD: ${MYSQL_PASSWORD}
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_SITEURL', 'https://www.example.com');
+        define('WP_HOME', 'https://www.example.com');
+        define('FORCE_SSL_ADMIN', true);
+        if (isset($_SERVER['HTTP_CF_CONNECTING_IP'])) {
+            $_SERVER['REMOTE_ADDR'] = $_SERVER['HTTP_CF_CONNECTING_IP'];
+        }
+    volumes:
+      - ./wordpress:/var/www/html
+    networks:
+      - wp_internal
+    healthcheck:
+      test: ["CMD-SHELL", "php-fpm-healthcheck || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  nginx:
+    image: nginx:stable
+    container_name: wp_nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./wordpress:/var/www/html:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./nginx/certs:/etc/nginx/certs
+      - ./nginx/logs:/var/log/nginx
+    depends_on:
+      wordpress:
+        condition: service_healthy
+    networks:
+      - wp_internal
+
+networks:
+  wp_internal:
+    driver: bridge

@@ -1208,6 +1208,445 @@ configure_tmux() {
     fi
 }
 
+# Change user password
+change_user_password() {
+    read -p "Enter username to change password for: " username
+
+    if [ -z "$username" ]; then
+        echo -e "${RED}Username cannot be empty.${NC}"
+        return 1
+    fi
+
+    if ! id "$username" &>/dev/null; then
+        echo -e "${RED}User $username does not exist.${NC}"
+        return 1
+    fi
+
+    while true; do
+        read -s -p "Enter new password for $username: " pass1
+        echo ""
+        read -s -p "Confirm new password: " pass2
+        echo ""
+
+        if [ "$pass1" = "$pass2" ]; then
+            if [ -z "$pass1" ]; then
+                echo -e "${RED}Password cannot be empty.${NC}"
+                continue
+            fi
+            echo "$username:$pass1" | chpasswd
+            echo -e "${GREEN}Password for user $username changed successfully.${NC}"
+            break
+        else
+            echo -e "${RED}Passwords do not match. Please try again.${NC}"
+        fi
+    done
+}
+
+# Install WordPress with Docker
+install_wordpress() {
+    echo -e "${BLUE}=== WordPress Installation ===${NC}"
+    
+    # Get domain from user
+    read -p "Enter domain name (leave empty for localhost): " domain_name
+    
+    # Set default to localhost if empty
+    if [ -z "$domain_name" ]; then
+        domain_name="localhost"
+        echo -e "${YELLOW}No domain provided. Using localhost.${NC}"
+    fi
+    
+    # Check and install Docker
+    echo -e "${BLUE}Checking Docker...${NC}"
+    if ! command -v docker &>/dev/null; then
+        echo -e "${YELLOW}Docker not found. Installing...${NC}"
+        case $PKG_MANAGER in
+            apt)
+                $UPDATE_CMD
+                $INSTALL_CMD ca-certificates curl gnupg
+                install -m 0755 -d /etc/apt/keyrings
+                curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+                chmod a+r /etc/apt/keyrings/docker.gpg
+                echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+                $UPDATE_CMD
+                $INSTALL_CMD docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+                ;;
+            yum|dnf)
+                $INSTALL_CMD -y yum-utils
+                yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+                $INSTALL_CMD docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+                ;;
+            pacman)
+                $INSTALL_CMD docker docker-compose
+                ;;
+        esac
+        systemctl enable docker
+        systemctl start docker
+        echo -e "${GREEN}Docker installed successfully.${NC}"
+    else
+        echo -e "${GREEN}Docker is already installed.${NC}"
+    fi
+    
+    # Check and install Nginx
+    echo -e "${BLUE}Checking Nginx...${NC}"
+    if ! command -v nginx &>/dev/null; then
+        echo -e "${YELLOW}Nginx not found. Installing...${NC}"
+        install_package "nginx"
+        systemctl enable nginx
+        systemctl start nginx
+        echo -e "${GREEN}Nginx installed successfully.${NC}"
+    else
+        echo -e "${GREEN}Nginx is already installed.${NC}"
+    fi
+    
+    # Check and install docker-compose
+    echo -e "${BLUE}Checking docker-compose...${NC}"
+    if ! command -v docker-compose &>/dev/null && ! docker compose version &>/dev/null; then
+        echo -e "${YELLOW}Docker Compose not found. Installing...${NC}"
+        case $PKG_MANAGER in
+            apt)
+                $INSTALL_CMD docker-compose-plugin
+                ;;
+            yum|dnf)
+                $INSTALL_CMD docker-compose-plugin
+                ;;
+            pacman)
+                $INSTALL_CMD docker-compose
+                ;;
+        esac
+        echo -e "${GREEN}Docker Compose installed successfully.${NC}"
+    else
+        echo -e "${GREEN}Docker Compose is already installed.${NC}"
+    fi
+    
+    # Setup WordPress directory
+    local wp_dir="/opt/wordpress"
+    echo -e "${BLUE}Setting up WordPress in $wp_dir...${NC}"
+    
+    if [ -d "$wp_dir" ]; then
+        echo -e "${YELLOW}Directory $wp_dir already exists.${NC}"
+        read -p "Do you want to overwrite existing installation? [y/N]: " overwrite
+        if [[ ! "$overwrite" =~ ^[Yy]$ ]]; then
+            echo -e "${YELLOW}Installation cancelled.${NC}"
+            return 1
+        fi
+        backup_file "$wp_dir/docker-compose.yml" 2>/dev/null || true
+        backup_file "$wp_dir/.env" 2>/dev/null || true
+    else
+        mkdir -p "$wp_dir"
+    fi
+    
+    # Create directory structure
+    mkdir -p "$wp_dir/wordpress"
+    mkdir -p "$wp_dir/db"
+    mkdir -p "$wp_dir/nginx/conf.d"
+    mkdir -p "$wp_dir/nginx/certs"
+    mkdir -p "$wp_dir/nginx/logs"
+    
+    # Copy docker-compose.yml from Configs
+    local config_src="$SCRIPT_DIR/Configs/wordpress/docker-compose.yml"
+    if [ ! -f "$config_src" ]; then
+        echo -e "${RED}WordPress docker-compose template not found at $config_src${NC}"
+        return 1
+    fi
+    
+    cp "$config_src" "$wp_dir/docker-compose.yml"
+    
+    # Copy and update .env file
+    local env_src="$SCRIPT_DIR/Configs/wordpress/.env"
+    if [ ! -f "$env_src" ]; then
+        echo -e "${RED}WordPress .env template not found at $env_src${NC}"
+        return 1
+    fi
+    
+    cp "$env_src" "$wp_dir/.env"
+    
+    # Prompt for database credentials
+    echo -e "${BLUE}Configure database credentials:${NC}"
+    read -p "Database name [wordpress]: " db_name
+    db_name=${db_name:-wordpress}
+    
+    read -p "Database user [wp_user]: " db_user
+    db_user=${db_user:-wp_user}
+    
+    read -s -p "Database password (leave empty for auto-generated): " db_pass
+    echo ""
+    if [ -z "$db_pass" ]; then
+        db_pass=$(openssl rand -base64 32 2>/dev/null || tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 32)
+        echo -e "${GREEN}Generated password: $db_pass${NC}"
+    fi
+    
+    read -s -p "Database root password (leave empty for auto-generated): " db_root_pass
+    echo ""
+    if [ -z "$db_root_pass" ]; then
+        db_root_pass=$(openssl rand -base64 32 2>/dev/null || tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 32)
+        echo -e "${GREEN}Generated root password: $db_root_pass${NC}"
+    fi
+    
+    # Prompt for WordPress admin account
+    echo ""
+    echo -e "${BLUE}Configure WordPress admin account:${NC}"
+    read -p "Site title [My WordPress Site]: " wp_title
+    wp_title=${wp_title:-My WordPress Site}
+    
+    read -p "Admin username [admin]: " wp_admin_user
+    wp_admin_user=${wp_admin_user:-admin}
+    
+    # Validate admin username (should not be 'admin' for security, but allow it)
+    if [ "$wp_admin_user" = "admin" ]; then
+        echo -e "${YELLOW}Warning: Using 'admin' as username is not recommended for security.${NC}"
+        read -p "Continue with 'admin'? [Y/n]: " confirm_admin
+        if [[ "$confirm_admin" =~ ^[Nn]$ ]]; then
+            read -p "Enter admin username: " wp_admin_user
+            wp_admin_user=${wp_admin_user:-admin}
+        fi
+    fi
+    
+    # Get admin password with confirmation
+    while true; do
+        read -s -p "Admin password (leave empty for auto-generated): " wp_admin_pass
+        echo ""
+        if [ -z "$wp_admin_pass" ]; then
+            wp_admin_pass=$(openssl rand -base64 32 2>/dev/null || tr -dc 'a-zA-Z0-9!@#$%^&*' < /dev/urandom | head -c 24)
+            echo -e "${GREEN}Generated admin password: $wp_admin_pass${NC}"
+            break
+        else
+            read -s -p "Confirm admin password: " wp_admin_pass_confirm
+            echo ""
+            if [ "$wp_admin_pass" = "$wp_admin_pass_confirm" ]; then
+                break
+            else
+                echo -e "${RED}Passwords do not match. Please try again.${NC}"
+            fi
+        fi
+    done
+    
+    # Get admin email
+    while true; do
+        read -p "Admin email: " wp_admin_email
+        if [ -z "$wp_admin_email" ]; then
+            echo -e "${RED}Admin email is required.${NC}"
+        elif [[ ! "$wp_admin_email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+            echo -e "${RED}Invalid email format. Please try again.${NC}"
+        else
+            break
+        fi
+    done
+    
+    # Update .env file
+    cat > "$wp_dir/.env" << EOF
+MYSQL_DATABASE=$db_name
+MYSQL_USER=$db_user
+MYSQL_PASSWORD=$db_pass
+MYSQL_ROOT_PASSWORD=$db_root_pass
+EOF
+    
+    # Copy and configure nginx
+    local nginx_src="$SCRIPT_DIR/Configs/wordpress/wordpress.conf"
+    if [ ! -f "$nginx_src" ]; then
+        echo -e "${RED}WordPress nginx config template not found at $nginx_src${NC}"
+        return 1
+    fi
+    
+    # Replace domain in nginx config
+    sed -e "s/www\.example\.com example\.com/$domain_name/g" \
+        -e "s/www\.example\.com/$domain_name/g" \
+        "$nginx_src" > "$wp_dir/nginx/conf.d/wordpress.conf"
+    
+    # Also update docker-compose.yml to use the domain
+    sed -i "s/www\.example\.com/$domain_name/g" "$wp_dir/docker-compose.yml"
+    
+    # Set permissions
+    chown -R root:root "$wp_dir"
+    chmod 600 "$wp_dir/.env"
+    
+    echo -e "${GREEN}WordPress configuration files prepared.${NC}"
+    echo -e "${BLUE}Starting WordPress containers...${NC}"
+    
+    # Start containers
+    cd "$wp_dir"
+    if docker compose up -d; then
+        echo -e "${GREEN}WordPress started successfully!${NC}"
+    else
+        # Fallback to docker-compose for older versions
+        if docker-compose up -d; then
+            echo -e "${GREEN}WordPress started successfully!${NC}"
+        else
+            echo -e "${RED}Failed to start WordPress containers.${NC}"
+            return 1
+        fi
+    fi
+    
+    # Wait for containers to be healthy
+    echo -e "${BLUE}Waiting for containers to be ready...${NC}"
+    sleep 10
+    
+    # Check container status
+    if docker ps | grep -q "wp_db" && docker ps | grep -q "wp_app" && docker ps | grep -q "wp_nginx"; then
+        echo -e "${GREEN}All containers are running.${NC}"
+    else
+        echo -e "${YELLOW}Some containers may still be starting. Check with 'docker ps'.${NC}"
+    fi
+    
+    # Install WP-CLI and configure WordPress
+    echo -e "${BLUE}Installing WP-CLI and configuring WordPress...${NC}"
+    
+    # Wait for database to be ready
+    echo -e "${BLUE}Waiting for database to be ready...${NC}"
+    local db_ready=0
+    local db_retries=0
+    while [ $db_ready -eq 0 ] && [ $db_retries -lt 30 ]; do
+        if docker exec wp_db mysqladmin ping -h localhost -u root -p"$db_root_pass" --silent 2>/dev/null; then
+            db_ready=1
+        else
+            sleep 2
+            db_retries=$((db_retries + 1))
+            echo -n "."
+        fi
+    done
+    echo ""
+    
+    if [ $db_ready -eq 0 ]; then
+        echo -e "${YELLOW}Database may not be ready yet. WordPress installation will need to be completed manually.${NC}"
+    else
+        echo -e "${GREEN}Database is ready.${NC}"
+        
+        # Install WP-CLI in the WordPress container
+        echo -e "${BLUE}Installing WP-CLI...${NC}"
+        docker exec wp_app bash -c "
+            curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar && \
+            chmod +x wp-cli.phar && \
+            mv wp-cli.phar /usr/local/bin/wp
+        " 2>/dev/null
+        
+        if docker exec wp_app wp --version &>/dev/null; then
+            echo -e "${GREEN}WP-CLI installed successfully.${NC}"
+            
+            # Wait for WordPress files to be ready
+            sleep 5
+            
+            # Create wp-config.php if it doesn't exist
+            if ! docker exec wp_app test -f /var/www/html/wp-config.php 2>/dev/null; then
+                echo -e "${BLUE}Creating wp-config.php...${NC}"
+                docker exec wp_app wp config create \
+                    --dbname="$db_name" \
+                    --dbuser="$db_user" \
+                    --dbpass="$db_pass" \
+                    --dbhost="db:3306" \
+                    --allow-root 2>/dev/null || true
+            fi
+            
+            # Check if WordPress is already installed
+            local wp_installed=0
+            if docker exec wp_app wp core is-installed --allow-root 2>/dev/null; then
+                wp_installed=1
+            fi
+            
+            if [ $wp_installed -eq 0 ]; then
+                echo -e "${BLUE}Installing WordPress...${NC}"
+                
+                # Determine protocol based on domain
+                local wp_url
+                if [ "$domain_name" = "localhost" ]; then
+                    wp_url="http://localhost"
+                else
+                    wp_url="https://$domain_name"
+                fi
+                
+                # Install WordPress with admin account
+                if docker exec wp_app wp core install \
+                    --url="$wp_url" \
+                    --title="$wp_title" \
+                    --admin_user="$wp_admin_user" \
+                    --admin_password="$wp_admin_pass" \
+                    --admin_email="$wp_admin_email" \
+                    --allow-root 2>/dev/null; then
+                    echo -e "${GREEN}WordPress installed successfully!${NC}"
+                    wp_installed=1
+                else
+                    echo -e "${YELLOW}WordPress core installation may have failed or already exists.${NC}"
+                fi
+            else
+                echo -e "${YELLOW}WordPress is already installed.${NC}"
+                wp_installed=1
+            fi
+            
+            # Store installation status for final output
+            local wp_install_success=$wp_installed
+        else
+            echo -e "${YELLOW}WP-CLI installation failed. WordPress will need to be configured manually.${NC}"
+            local wp_install_success=0
+        fi
+    fi
+    
+    # Configure system nginx as reverse proxy if domain is not localhost
+    if [ "$domain_name" != "localhost" ]; then
+        echo -e "${BLUE}Configuring system Nginx as reverse proxy...${NC}"
+        
+        # Create nginx config for the domain
+        cat > "/etc/nginx/sites-available/$domain_name" << EOF
+server {
+    listen 80;
+    server_name $domain_name;
+
+    location / {
+        proxy_pass http://127.0.0.1:80;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+        
+        # Enable site
+        if [ -d "/etc/nginx/sites-enabled" ]; then
+            ln -sf "/etc/nginx/sites-available/$domain_name" "/etc/nginx/sites-enabled/$domain_name"
+        fi
+        
+        # Test and reload nginx
+        if nginx -t; then
+            systemctl reload nginx
+            echo -e "${GREEN}Nginx configured for $domain_name${NC}"
+        else
+            echo -e "${YELLOW}Nginx configuration test failed. Please check manually.${NC}"
+        fi
+    fi
+    
+    echo ""
+    echo -e "${GREEN}=== WordPress Installation Complete ===${NC}"
+    echo -e "${GREEN}Domain:${NC} $domain_name"
+    echo -e "${GREEN}Site Title:${NC} $wp_title"
+    echo -e "${GREEN}Directory:${NC} $wp_dir"
+    echo -e "${GREEN}Database:${NC} $db_name"
+    echo -e "${GREEN}Database User:${NC} $db_user"
+    
+    if [ "$domain_name" = "localhost" ]; then
+        echo -e "${GREEN}Access URL:${NC} http://localhost"
+        local wp_admin_url="http://localhost/wp-admin"
+    else
+        echo -e "${GREEN}Access URL:${NC} https://$domain_name"
+        local wp_admin_url="https://$domain_name/wp-admin"
+    fi
+    
+    echo ""
+    echo -e "${BLUE}=== Admin Account ===${NC}"
+    echo -e "${GREEN}Username:${NC} $wp_admin_user"
+    echo -e "${GREEN}Password:${NC} $wp_admin_pass"
+    echo -e "${GREEN}Email:${NC} $wp_admin_email"
+    echo -e "${GREEN}Admin URL:${NC} $wp_admin_url"
+    
+    echo ""
+    if [ "${wp_install_success:-0}" = "1" ]; then
+        echo -e "${GREEN}WordPress has been automatically configured and is ready to use!${NC}"
+    else
+        echo -e "${YELLOW}Note: WordPress may need manual setup. Visit the URL above to complete installation.${NC}"
+    fi
+    echo -e "${YELLOW}Database credentials are stored in:${NC} $wp_dir/.env"
+    echo -e "${YELLOW}To manage containers:${NC} cd $wp_dir && docker compose up -d"
+    echo ""
+    echo -e "${YELLOW}IMPORTANT: Save the admin credentials above. They will not be shown again!${NC}"
+}
+
 # Misc menu
 misc_menu() {
     while true; do
@@ -1218,8 +1657,10 @@ misc_menu() {
         echo "4) Install packages"
         echo "5) Sync system date/time"
         echo "6) Configure Tmux"
-        echo "7) Back to main menu"
-        read -p "Choose option [1-7]: " misc_option
+        echo "7) Change user password"
+        echo "8) Install WordPress"
+        echo "9) Back to main menu"
+        read -p "Choose option [1-9]: " misc_option
         
         case $misc_option in
             1) update_system ;;
@@ -1228,7 +1669,9 @@ misc_menu() {
             4) install_packages_menu ;;
             5) sync_system_time ;;
             6) configure_tmux ;;
-            7) break ;;
+            7) change_user_password ;;
+            8) install_wordpress ;;
+            9) break ;;
             *) echo -e "${RED}Invalid option.${NC}" ;;
         esac
     done
