@@ -1,1 +1,3 @@
 /.qoder/*
+*.md
+!README.md

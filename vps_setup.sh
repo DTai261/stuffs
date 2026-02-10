@@ -1690,6 +1690,10 @@ EOF
     else
         echo -e "${GREEN}Database is ready.${NC}"
         
+        # Install CA Certificates to fix outbound HTTPS (theme installation issues)
+        echo -e "${BLUE}Installing CA Certificates in container...${NC}"
+        docker exec wp_app bash -c "apt-get update && apt-get install -y ca-certificates && update-ca-certificates" 2>/dev/null
+
         # Install WP-CLI in the WordPress container
         echo -e "${BLUE}Installing WP-CLI...${NC}"
         docker exec wp_app bash -c "
@@ -1712,6 +1716,10 @@ EOF
                     --dbpass="$db_pass" \
                     --dbhost="db:3306" \
                     --allow-root 2>/dev/null || true
+                
+                # Inject Reverse Proxy HTTPS fix into wp-config.php
+                echo -e "${BLUE}Configuring WordPress for Reverse Proxy...${NC}"
+                docker exec wp_app sed -i "/<?php/a if (isset(\$_SERVER['HTTP_X_FORWARDED_PROTO']) && \$_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') { \$_SERVER['HTTPS'] = 'on'; }" /var/www/html/wp-config.php
             fi
             
             # Check if WordPress is already installed
