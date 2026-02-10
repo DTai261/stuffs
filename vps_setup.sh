@@ -1501,6 +1501,18 @@ EOF
     echo -e "${BLUE}Pulling latest Docker images...${NC}"
     $compose_cmd pull
     
+    # Stop system Nginx to free up port 80/443 for Docker Nginx
+    echo -e "${BLUE}Stopping system Nginx to allow Docker Nginx to use port 80/443...${NC}"
+    systemctl stop nginx 2>/dev/null || true
+    systemctl disable nginx 2>/dev/null || true
+    
+    # Also stop any other service using port 80
+    if command -v fuser &>/dev/null; then
+        fuser -k 80/tcp 2>/dev/null || true
+    fi
+    
+    echo -e "${GREEN}System Nginx stopped. Docker Nginx will handle port 80/443.${NC}"
+    
     # Start containers
     echo -e "${BLUE}Starting containers...${NC}"
     if $compose_cmd up -d; then
@@ -1660,12 +1672,6 @@ EOF
             local wp_install_success=0
         fi
     fi
-    
-    # Stop system Nginx to free up port 80/443 for Docker Nginx
-    echo -e "${BLUE}Stopping system Nginx to allow Docker Nginx to use port 80...${NC}"
-    systemctl stop nginx 2>/dev/null || true
-    systemctl disable nginx 2>/dev/null || true
-    echo -e "${GREEN}System Nginx stopped. Docker Nginx will handle port 80/443.${NC}"
     
     echo ""
     echo -e "${GREEN}=== WordPress Installation Complete ===${NC}"
