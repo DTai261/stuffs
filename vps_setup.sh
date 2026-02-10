@@ -1440,6 +1440,17 @@ MYSQL_PASSWORD=$db_pass
 MYSQL_ROOT_PASSWORD=$db_root_pass
 EOF
     
+    # Generate self-signed certificate if it doesn't exist
+    if [ ! -f "$wp_dir/nginx/certs/selfsigned.crt" ]; then
+        echo -e "${BLUE}Generating self-signed SSL certificate...${NC}"
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+            -keyout "$wp_dir/nginx/certs/selfsigned.key" \
+            -out "$wp_dir/nginx/certs/selfsigned.crt" \
+            -subj "/C=US/ST=State/L=City/O=Organization/CN=$domain_name" 2>/dev/null
+        chmod 644 "$wp_dir/nginx/certs/selfsigned.crt"
+        chmod 600 "$wp_dir/nginx/certs/selfsigned.key"
+    fi
+
     # Copy and configure nginx
     local nginx_src="$SCRIPT_DIR/Configs/wordpress/wordpress.conf"
     if [ ! -f "$nginx_src" ]; then
@@ -1506,13 +1517,22 @@ EOF
     systemctl stop nginx 2>/dev/null || true
     systemctl disable nginx 2>/dev/null || true
     
-    # Also stop any other service using port 80
+    # Also stop any other service using port 80/443
     if command -v fuser &>/dev/null; then
         fuser -k 80/tcp 2>/dev/null || true
+        fuser -k 443/tcp 2>/dev/null || true
     fi
     
     echo -e "${GREEN}System Nginx stopped. Docker Nginx will handle port 80/443.${NC}"
     
+    # Configure Firewall (UFW) if active
+    if command -v ufw &>/dev/null && ufw status | grep -q "Status: active"; then
+        echo -e "${BLUE}Configuring UFW firewall...${NC}"
+        ufw allow 80/tcp
+        ufw allow 443/tcp
+        echo -e "${GREEN}Ports 80 and 443 allowed in UFW.${NC}"
+    fi
+
     # Start containers
     echo -e "${BLUE}Starting containers...${NC}"
     if $compose_cmd up -d; then
@@ -1608,9 +1628,8 @@ EOF
         # Install WP-CLI in the WordPress container
         echo -e "${BLUE}Installing WP-CLI...${NC}"
         docker exec wp_app bash -c "
-            curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar && \
-            chmod +x wp-cli.phar && \
-            mv wp-cli.phar /usr/local/bin/wp
+            curl -fsSL -o /usr/local/bin/wp https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar && \
+            chmod +x /usr/local/bin/wp
         " 2>/dev/null
         
         if docker exec wp_app wp --version &>/dev/null; then
