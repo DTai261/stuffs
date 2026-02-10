@@ -1661,49 +1661,11 @@ EOF
         fi
     fi
     
-    # Configure system nginx as reverse proxy
-    echo -e "${BLUE}Configuring system Nginx as reverse proxy...${NC}"
-    
-    local nginx_server_name="$domain_name"
-    if [ "$domain_name" = "localhost" ]; then
-        nginx_server_name="localhost"
-    fi
-    
-    # Create nginx config for the domain
-    cat > "/etc/nginx/sites-available/wordpress" << EOF
-server {
-    listen 80;
-    server_name $nginx_server_name;
-
-    client_max_body_size 64M;
-
-    location / {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_connect_timeout 300s;
-        proxy_send_timeout 300s;
-        proxy_read_timeout 300s;
-    }
-}
-EOF
-    
-    # Enable site
-    if [ -d "/etc/nginx/sites-enabled" ]; then
-        ln -sf "/etc/nginx/sites-available/wordpress" "/etc/nginx/sites-enabled/wordpress"
-        # Remove default site if it exists to avoid conflicts
-        rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
-    fi
-    
-    # Test and reload nginx
-    if nginx -t 2>/dev/null; then
-        systemctl reload nginx
-        echo -e "${GREEN}Nginx configured for $nginx_server_name${NC}"
-    else
-        echo -e "${YELLOW}Nginx configuration test failed. Please check manually.${NC}"
-    fi
+    # Stop system Nginx to free up port 80/443 for Docker Nginx
+    echo -e "${BLUE}Stopping system Nginx to allow Docker Nginx to use port 80...${NC}"
+    systemctl stop nginx 2>/dev/null || true
+    systemctl disable nginx 2>/dev/null || true
+    echo -e "${GREEN}System Nginx stopped. Docker Nginx will handle port 80/443.${NC}"
     
     echo ""
     echo -e "${GREEN}=== WordPress Installation Complete ===${NC}"
@@ -1736,6 +1698,11 @@ EOF
     fi
     echo -e "${YELLOW}Database credentials are stored in:${NC} $wp_dir/.env"
     echo -e "${YELLOW}To manage containers:${NC} cd $wp_dir && $compose_cmd up -d"
+    echo ""
+    echo -e "${BLUE}=== Cloudflare Configuration ===${NC}"
+    echo -e "${YELLOW}1. Set Cloudflare SSL/TLS encryption mode to:${NC} Full"
+    echo -e "${YELLOW}2. Ensure DNS records point to your VPS IP${NC}"
+    echo -e "${YELLOW}3. If using HTTPS, configure SSL certificates in:${NC} $wp_dir/nginx/certs/"
     echo ""
     echo -e "${YELLOW}IMPORTANT: Save the admin credentials above. They will not be shown again!${NC}"
 }

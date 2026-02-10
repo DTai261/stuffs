@@ -1,235 +1,235 @@
-Yes — **that is exactly how a proper production setup should look**, and yes, it’s absolutely possible.
-
-You want:
-
-* Secrets loaded from `.env`
-* WordPress **not exposed publicly**
-* Nginx handling `www.example.com`
-* Nginx ↔ WordPress **only on an internal Docker network**
-* Optional `WP_SITEURL` / `WP_HOME` done correctly
-
-Below is a **clean, correct, and production-grade `docker-compose.yml`** that matches your requirements.
+Perfect, thanks for pasting the outputs — this makes the problem **very clear now**.
+Good news: **nothing is “mysteriously broken”**. This is a clean, explainable setup issue.
 
 ---
 
-## 1. About `WP_SITEURL` and `WP_HOME` (important)
+## Root cause (100% confirmed)
 
-**Is it necessary?**
+### 🚨 Cloudflare Error 521 happens because:
 
-* ❌ Not strictly required (WordPress can auto-detect)
-* ✅ **Strongly recommended** when:
+**Cloudflare only connects to ports `80` and `443`**, but your Docker Nginx is exposed on **port `8080`**.
 
-  * Using reverse proxy (Cloudflare, Nginx)
-  * Avoiding redirect loops
-  * Preventing mixed HTTP/HTTPS issues
-
-Since you’re using:
+From your output:
 
 ```
-Cloudflare → Nginx → WordPress (local)
+wp_nginx → 0.0.0.0:8080->80/tcp
 ```
 
-You **should set them**.
-
-We will set:
+But Cloudflare does:
 
 ```
-https://www.example.com
+Cloudflare → VPS_IP:80 or VPS_IP:443
 ```
+
+So Cloudflare hits:
+
+```
+VPS_IP:80 ❌ (Docker nginx is NOT there)
+VPS_IP:443 ❌ (nothing listening)
+```
+
+That’s why Cloudflare says **“Web server is down (521)”**.
 
 ---
 
-## 2. Directory layout
+## There is a SECOND issue (also important)
+
+This line proves it:
 
 ```
-/opt/wordpress/
-├── .env
-├── docker-compose.yml
-├── wordpress/
-├── db/
-└── nginx/
-    └── conf.d/
-        └── wordpress.conf
+Server: nginx/1.24.0 (Ubuntu)
 ```
+
+That means:
+
+👉 You have **system Nginx installed on the VPS**, listening on port **80**
+👉 Docker Nginx is on **8080**
+
+So right now you have **two Nginx servers**:
+
+* System Nginx (port 80)
+* Docker Nginx (port 8080)
+
+Cloudflare reaches **system Nginx**, not Docker.
 
 ---
 
-## 3. Updated `docker-compose.yml`
+## Why curl works locally but Cloudflare fails
 
-This setup:
-
-* Uses your `.env`
-* WordPress is **internal only**
-* Nginx is the **only exposed service**
-* Clean Docker networking
-
-```yaml
-version: "3.8"
-
-services:
-  db:
-    image: mariadb:11
-    container_name: wp_db
-    restart: always
-    env_file:
-      - .env
-    volumes:
-      - ./db:/var/lib/mysql
-    networks:
-      - wp_internal
-
-  wordpress:
-    image: wordpress:php8.2-fpm
-    container_name: wp_app
-    restart: always
-    depends_on:
-      - db
-    env_file:
-      - .env
-    environment:
-      WORDPRESS_DB_HOST: db:3306
-      WORDPRESS_DB_NAME: ${MYSQL_DATABASE}
-      WORDPRESS_DB_USER: ${MYSQL_USER}
-      WORDPRESS_DB_PASSWORD: ${MYSQL_PASSWORD}
-      WP_SITEURL: https://www.example.com
-      WP_HOME: https://www.example.com
-    volumes:
-      - ./wordpress:/var/www/html
-    networks:
-      - wp_internal
-
-  nginx:
-    image: nginx:stable
-    container_name: wp_nginx
-    restart: always
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./wordpress:/var/www/html:ro
-      - ./nginx/conf.d:/etc/nginx/conf.d
-      - ./nginx/certs:/etc/nginx/certs
-    depends_on:
-      - wordpress
-    networks:
-      - wp_internal
-
-networks:
-  wp_internal:
-    driver: bridge
-```
-
-### Key points
-
-* **No ports exposed on WordPress**
-* Nginx talks to WordPress via `wordpress:9000`
-* Secrets come from `.env`
-* WordPress is PHP-FPM (best practice with Nginx)
+| Test                         | Result  | Why                        |
+| ---------------------------- | ------- | -------------------------- |
+| `curl http://127.0.0.1:8080` | ✅ works | Docker nginx               |
+| `curl http://127.0.0.1`      | ✅ works | System nginx               |
+| `https://www.zxss.site`      | ❌ 521   | Cloudflare → wrong backend |
 
 ---
 
-## 4. Nginx config for WordPress (`nginx/conf.d/wordpress.conf`)
+## You have TWO valid ways to fix this
 
-```nginx
-server {
-    listen 80;
-    server_name www.example.com example.com;
-
-    root /var/www/html;
-    index index.php index.html;
-
-    location / {
-        try_files $uri $uri/ /index.php?$args;
-    }
-
-    location ~ \.php$ {
-        include fastcgi_params;
-        fastcgi_pass wordpress:9000;
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-    }
-
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
-        expires max;
-        log_not_found off;
-    }
-}
-```
-
-Later, Cloudflare or certbot can terminate HTTPS — this config is compatible with both.
+I’ll give you both — **Option A is recommended**.
 
 ---
 
-## 5. Start everything
+# ✅ OPTION A (RECOMMENDED): Docker Nginx owns port 80/443
+
+This is the **clean Docker-first architecture**.
+
+### Step 1: Stop and disable system Nginx
 
 ```bash
+sudo systemctl stop nginx
+sudo systemctl disable nginx
+```
+
+(Optional but clean)
+
+```bash
+sudo apt remove nginx -y
+```
+
+---
+
+### Step 2: Change Docker Nginx ports to 80/443
+
+In `docker-compose.yml`:
+
+```yaml
+nginx:
+  image: nginx:stable
+  container_name: wp_nginx
+  restart: always
+  ports:
+    - "80:80"
+    - "443:443"
+```
+
+Remove `8080`.
+
+---
+
+### Step 3: Restart Docker stack
+
+```bash
+docker compose down
 docker compose up -d
 ```
 
-Check:
+Verify:
 
 ```bash
-docker ps
+ss -tulpn | grep :80
 ```
 
-You should see:
-
-* wp_db
-* wp_app
-* wp_nginx
+You should see **docker-proxy**, NOT Ubuntu nginx.
 
 ---
 
-## 6. Cloudflare compatibility notes (very important)
+### Step 4: Test before Cloudflare
 
-### SSL mode
+Temporarily set Cloudflare DNS to **DNS only (gray cloud)**.
 
-Set in Cloudflare:
+Then:
+
+```bash
+curl http://YOUR_VPS_IP
+```
+
+Expected:
 
 ```
-SSL/TLS → Full (strict)
+HTTP/1.1 302 Found
+Server: nginx
 ```
 
-### Fix real visitor IP (recommended)
+Open in browser:
 
-Add this to `wp-config.php`:
-
-```php
-if (isset($_SERVER['HTTP_CF_CONNECTING_IP'])) {
-    $_SERVER['REMOTE_ADDR'] = $_SERVER['HTTP_CF_CONNECTING_IP'];
-}
+```
+http://www.zxss.site
 ```
 
 ---
 
-## 7. Security verification checklist
+### Step 5: Enable Cloudflare proxy again
 
-✔ WordPress not publicly accessible
-✔ Only Nginx exposes ports
-✔ Secrets not hardcoded
-✔ Reverse proxy compatible
-✔ Cloudflare-safe
-✔ No IP leakage
+Turn 🟠 orange cloud back ON.
+
+👉 **521 error will be gone.**
 
 ---
 
-## Final answer (direct)
+# ⚠️ OPTION B (Not recommended, but works): Keep 8080
 
-> Yes, it is possible — and your requested design is the **correct architecture**.
->
-> * `WP_SITEURL` and `WP_HOME` **should be set**
-> * WordPress can run **local-only**
-> * Nginx can safely proxy requests from `www.example.com`
-> * Docker internal networking handles communication cleanly
+Only use this if you **really want system nginx**.
+
+You would need:
+
+* System Nginx on port 80
+* System Nginx → proxy_pass → Docker nginx:8080
+
+This adds **unnecessary complexity** and no benefit for you.
 
 ---
 
-If you want next steps, I can:
+## What about HTTPS / 443?
 
-* Add **Cloudflare Origin SSL**
-* Convert Nginx → **Nginx Proxy Manager**
-* Add **auto-renew HTTPS**
-* Lock VPS to **Cloudflare IPs only**
-* Add **fail2ban / rate limits**
-* Add **backups + updates**
+Right now:
 
-Tell me what you want to harden next.
+```
+ss -tulpn | grep :443
+(no output)
+```
+
+So Cloudflare HTTPS will also fail **unless**:
+
+* SSL mode = **Flexible** (temporary)
+* OR you add HTTPS to Docker Nginx
+* OR use Cloudflare Origin Cert / Nginx Proxy Manager
+
+---
+
+## Quick temporary Cloudflare setting (do this now)
+
+Until HTTPS is ready:
+
+```
+Cloudflare → SSL/TLS → Encryption mode → Full
+```
+
+(Do NOT use Full (strict) yet.)
+
+---
+
+## Final diagnosis (plain English)
+
+* DNS is correct ✅
+* Firewall is not blocking ✅
+* Docker is running fine ✅
+* WordPress is working locally ✅
+* **Cloudflare cannot reach your Docker nginx because it’s on port 8080 ❌**
+* System nginx is interfering ❌
+
+---
+
+## TL;DR fix (fast)
+
+```bash
+sudo systemctl stop nginx
+sudo systemctl disable nginx
+# remove nginx if you want
+
+# change docker nginx ports to 80/443
+docker compose down
+docker compose up -d
+```
+
+---
+
+If you want, next I can:
+
+* Add **Cloudflare Origin SSL** properly
+* Convert this to **Nginx Proxy Manager**
+* Lock ports to **Cloudflare IPs only**
+* Clean WordPress redirects (`WP_HOME` / `WP_SITEURL`)
+* Remove HTTPS redirect loops
+
+Just say what you want next and we’ll finish this cleanly.
