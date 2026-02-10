@@ -1440,16 +1440,74 @@ MYSQL_PASSWORD=$db_pass
 MYSQL_ROOT_PASSWORD=$db_root_pass
 EOF
     
-    # Generate self-signed certificate if it doesn't exist
-    if [ ! -f "$wp_dir/nginx/certs/selfsigned.crt" ]; then
-        echo -e "${BLUE}Generating self-signed SSL certificate...${NC}"
-        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-            -keyout "$wp_dir/nginx/certs/selfsigned.key" \
-            -out "$wp_dir/nginx/certs/selfsigned.crt" \
-            -subj "/C=US/ST=State/L=City/O=Organization/CN=$domain_name" 2>/dev/null
-        chmod 644 "$wp_dir/nginx/certs/selfsigned.crt"
-        chmod 600 "$wp_dir/nginx/certs/selfsigned.key"
+    # SSL Certificate Setup
+    echo -e "${BLUE}=== SSL Certificate Configuration ===${NC}"
+    echo "You can use a self-signed certificate (Cloudflare Full mode) or a custom certificate (e.g., Cloudflare Origin CA for Full Strict mode)."
+    read -p "Do you want to provide a custom SSL certificate? [y/N]: " use_custom_ssl
+    
+    if [[ "$use_custom_ssl" =~ ^[Yy]$ ]]; then
+        echo -e "${YELLOW}Please prepare your Certificate and Private Key content.${NC}"
+        
+        # Function to read multi-line input
+        read_multiline() {
+            local var_name=$1
+            local prompt=$2
+            echo -e "$prompt"
+            echo -e "${YELLOW}(Press Ctrl+D on a new line when finished, or paste the content)${NC}"
+            local input=""
+            while IFS= read -r line || [ -n "$line" ]; do
+                input="${input}${line}\n"
+            done
+            printf -v "$var_name" "%b" "$input"
+        }
+
+        echo -e "${BLUE}Paste your Certificate content (PEM format):${NC}"
+        # We'll use a simple loop with a sentinel because Ctrl+D might close the script input stream in some environments
+        echo -e "${YELLOW}Paste the content below. Type 'EOF' on a new line to finish:${NC}"
+        local ssl_cert=""
+        while IFS= read -r line; do
+            if [ "$line" = "EOF" ]; then
+                break
+            fi
+            ssl_cert="${ssl_cert}${line}\n"
+        done
+
+        echo -e "${BLUE}Paste your Private Key content (PEM format):${NC}"
+        echo -e "${YELLOW}Paste the content below. Type 'EOF' on a new line to finish:${NC}"
+        local ssl_key=""
+        while IFS= read -r line; do
+            if [ "$line" = "EOF" ]; then
+                break
+            fi
+            ssl_key="${ssl_key}${line}\n"
+        done
+
+        if [ -n "$ssl_cert" ] && [ -n "$ssl_key" ]; then
+            echo -e "$ssl_cert" > "$wp_dir/nginx/certs/server.crt"
+            echo -e "$ssl_key" > "$wp_dir/nginx/certs/server.key"
+            echo -e "${GREEN}Custom SSL certificate saved.${NC}"
+        else
+            echo -e "${RED}Certificate or Key input was empty. Falling back to self-signed.${NC}"
+            use_custom_ssl="n"
+        fi
     fi
+
+    if [[ ! "$use_custom_ssl" =~ ^[Yy]$ ]]; then
+        # Generate self-signed certificate if it doesn't exist
+        if [ ! -f "$wp_dir/nginx/certs/server.crt" ]; then
+            echo -e "${BLUE}Generating self-signed SSL certificate...${NC}"
+            openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+                -keyout "$wp_dir/nginx/certs/server.key" \
+                -out "$wp_dir/nginx/certs/server.crt" \
+                -subj "/C=US/ST=State/L=City/O=Organization/CN=$domain_name" 2>/dev/null
+            echo -e "${GREEN}Self-signed certificate generated.${NC}"
+        else
+            echo -e "${GREEN}Existing SSL certificate found.${NC}"
+        fi
+    fi
+    
+    chmod 644 "$wp_dir/nginx/certs/server.crt" 2>/dev/null || true
+    chmod 600 "$wp_dir/nginx/certs/server.key" 2>/dev/null || true
 
     # Copy and configure nginx
     local nginx_src="$SCRIPT_DIR/Configs/wordpress/wordpress.conf"
