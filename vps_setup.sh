@@ -1447,6 +1447,13 @@ EOF
     
     if [[ "$use_custom_ssl" =~ ^[Yy]$ ]]; then
         echo -e "${YELLOW}Please prepare your Certificate and Private Key content.${NC}"
+        echo -e "${BLUE}=== INSTRUCTIONS FOR CLOUDFLARE ORIGIN CA ===${NC}"
+        echo -e "1. Go to Cloudflare Dashboard > SSL/TLS > Origin Server"
+        echo -e "2. Click 'Create Certificate'"
+        echo -e "3. Keep defaults (RSA 2048, 15 years) and click 'Create'"
+        echo -e "4. You will see 'Origin Certificate' and 'Private Key' text blocks"
+        echo -e "5. Copy and paste them below when prompted (Type EOF on a new line to finish.)"
+        echo ""
         
         # Function to read multi-line input
         read_multiline() {
