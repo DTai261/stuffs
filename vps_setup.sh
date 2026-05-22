@@ -392,6 +392,7 @@ install_packages_menu() {
                 ["apache2"]="apache2"
                 ["postgresql"]="postgresql"
                 ["mysql-server"]="mysql-server"
+                ["redis"]="redis-server"
                 ["certbot"]="certbot"
                 ["openssh-server"]="openssh-server"
                 ["unzip"]="unzip"
@@ -425,6 +426,7 @@ install_packages_menu() {
                 ["apache2"]="httpd"
                 ["postgresql"]="postgresql-server"
                 ["mysql-server"]="mysql-server"
+                ["redis"]="redis"
                 ["certbot"]="certbot"
                 ["openssh-server"]="openssh-server"
                 ["unzip"]="unzip"
@@ -458,6 +460,7 @@ install_packages_menu() {
                 ["apache2"]="apache"
                 ["postgresql"]="postgresql"
                 ["mysql-server"]="mysql"
+                ["redis"]="redis"
                 ["certbot"]="certbot"
                 ["openssh-server"]="openssh"
                 ["unzip"]="unzip"
@@ -560,6 +563,11 @@ install_packages_menu() {
                     ;;
                 mysql-server)
                     if command -v mysql &> /dev/null || systemctl is-active --quiet mysql 2>/dev/null || systemctl is-active --quiet mysqld 2>/dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
+                redis)
+                    if command -v redis-server &> /dev/null || command -v redis-cli &> /dev/null || systemctl is-active --quiet redis-server 2>/dev/null || systemctl is-active --quiet redis 2>/dev/null; then
                         is_installed=1
                     fi
                     ;;
