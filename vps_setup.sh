@@ -1868,6 +1868,60 @@ add_user_to_docker_group() {
     fi
 }
 
+# Fix Docker socket permissions for current user
+fix_docker_permissions() {
+    local target_user="${SUDO_USER:-$USER}"
+    
+    if [ "$target_user" = "root" ]; then
+        echo -e "${YELLOW}You are running as root. Root always has Docker access.${NC}"
+        read -p "Enter a specific username to fix permissions for (optional): " manual_user
+        if [ -n "$manual_user" ]; then
+            target_user="$manual_user"
+        fi
+    fi
+
+    if ! id "$target_user" &>/dev/null; then
+        echo -e "${RED}User $target_user does not exist.${NC}"
+        return 1
+    fi
+
+    echo -e "${BLUE}Fixing Docker permissions for $target_user...${NC}"
+
+    # Ensure docker group exists and user is in it
+    if ! getent group docker > /dev/null; then
+        groupadd docker || true
+    fi
+    usermod -aG docker "$target_user"
+
+    # Fix socket permissions
+    if [ -S /var/run/docker.sock ]; then
+        chown root:docker /var/run/docker.sock
+        chmod 660 /var/run/docker.sock
+        
+        # Apply ACL
+        if ! command -v setfacl &>/dev/null; then
+            case $PKG_MANAGER in
+                apt) $INSTALL_CMD acl &>/dev/null || true ;;
+                yum|dnf) $INSTALL_CMD acl &>/dev/null || true ;;
+                pacman) $INSTALL_CMD acl &>/dev/null || true ;;
+            esac
+        fi
+        
+        if command -v setfacl &>/dev/null; then
+            setfacl -m "u:$target_user:rw" /var/run/docker.sock 2>/dev/null || true
+            echo -e "${GREEN}Immediate ACL access granted to $target_user.${NC}"
+        fi
+        echo -e "${GREEN}Docker socket permissions set to root:docker (660).${NC}"
+    else
+        echo -e "${RED}Docker socket not found at /var/run/docker.sock.${NC}"
+        echo -e "${YELLOW}Is Docker service running? Try: systemctl start docker${NC}"
+        return 1
+    fi
+
+    echo -e "${GREEN}Permissions fixed for $target_user!${NC}"
+    echo -e "${YELLOW}Note: If it still fails, try running 'newgrp docker' or logging out/in.${NC}"
+}
+
 # Misc menu
 misc_menu() {
     while true; do
@@ -1881,8 +1935,9 @@ misc_menu() {
         echo "7) Change user password"
         echo "8) Install WordPress"
         echo "9) Add user to Docker group"
-        echo "10) Back to main menu"
-        read -p "Choose option [1-10]: " misc_option
+        echo "10) Fix Docker permissions (Current User)"
+        echo "11) Back to main menu"
+        read -p "Choose option [1-11]: " misc_option
         
         case $misc_option in
             1) update_system ;;
@@ -1894,7 +1949,8 @@ misc_menu() {
             7) change_user_password ;;
             8) install_wordpress ;;
             9) add_user_to_docker_group ;;
-            10) break ;;
+            10) fix_docker_permissions ;;
+            11) break ;;
             *) echo -e "${RED}Invalid option.${NC}" ;;
         esac
     done
