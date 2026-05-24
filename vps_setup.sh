@@ -1839,7 +1839,17 @@ add_user_to_docker_group() {
     echo -e "${BLUE}Adding user $username to docker group...${NC}"
     if usermod -aG docker "$username"; then
         echo -e "${GREEN}User $username added to docker group.${NC}"
-        echo -e "${YELLOW}Note: The user may need to log out and back in for changes to take effect.${NC}"
+        
+        # Ensure docker socket has correct permissions
+        if [ -S /var/run/docker.sock ]; then
+            chown root:docker /var/run/docker.sock
+            chmod 660 /var/run/docker.sock
+            echo -e "${GREEN}Docker socket permissions updated.${NC}"
+        fi
+
+        echo -e "${YELLOW}Note: To apply changes immediately without logging out, the user can run:${NC}"
+        echo -e "${BLUE}newgrp docker${NC}"
+        echo -e "${YELLOW}Otherwise, a logout/login is required.${NC}"
     else
         echo -e "${RED}Failed to add user $username to docker group.${NC}"
         return 1
@@ -1924,7 +1934,15 @@ add_user() {
             groupadd docker || true
         fi
         usermod -aG docker "$username"
+        
+        # Ensure docker socket has correct permissions
+        if [ -S /var/run/docker.sock ]; then
+            chown root:docker /var/run/docker.sock
+            chmod 660 /var/run/docker.sock
+        fi
+        
         echo -e "${GREEN}User added to docker group.${NC}"
+        echo -e "${YELLOW}Note: To apply docker permissions immediately after login, run: newgrp docker${NC}"
     fi
     
     # Allow SSH
