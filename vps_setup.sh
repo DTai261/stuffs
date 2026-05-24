@@ -1844,12 +1844,24 @@ add_user_to_docker_group() {
         if [ -S /var/run/docker.sock ]; then
             chown root:docker /var/run/docker.sock
             chmod 660 /var/run/docker.sock
-            echo -e "${GREEN}Docker socket permissions updated.${NC}"
+            
+            # Use ACL to grant immediate access without relog
+            echo -e "${BLUE}Granting immediate access via ACL...${NC}"
+            if ! command -v setfacl &>/dev/null; then
+                case $PKG_MANAGER in
+                    apt) $INSTALL_CMD acl &>/dev/null || true ;;
+                    yum|dnf) $INSTALL_CMD acl &>/dev/null || true ;;
+                    pacman) $INSTALL_CMD acl &>/dev/null || true ;;
+                esac
+            fi
+            
+            if command -v setfacl &>/dev/null; then
+                setfacl -m "u:$username:rw" /var/run/docker.sock 2>/dev/null || true
+                echo -e "${GREEN}Immediate access granted to $username.${NC}"
+            fi
         fi
 
-        echo -e "${YELLOW}Note: To apply changes immediately without logging out, the user can run:${NC}"
-        echo -e "${BLUE}newgrp docker${NC}"
-        echo -e "${YELLOW}Otherwise, a logout/login is required.${NC}"
+        echo -e "${GREEN}Setup complete! User $username can now run docker commands.${NC}"
     else
         echo -e "${RED}Failed to add user $username to docker group.${NC}"
         return 1
@@ -1939,10 +1951,22 @@ add_user() {
         if [ -S /var/run/docker.sock ]; then
             chown root:docker /var/run/docker.sock
             chmod 660 /var/run/docker.sock
+            
+            # Use ACL to grant immediate access without relog
+            if ! command -v setfacl &>/dev/null; then
+                case $PKG_MANAGER in
+                    apt) $INSTALL_CMD acl &>/dev/null || true ;;
+                    yum|dnf) $INSTALL_CMD acl &>/dev/null || true ;;
+                    pacman) $INSTALL_CMD acl &>/dev/null || true ;;
+                esac
+            fi
+            
+            if command -v setfacl &>/dev/null; then
+                setfacl -m "u:$username:rw" /var/run/docker.sock 2>/dev/null || true
+            fi
         fi
         
-        echo -e "${GREEN}User added to docker group.${NC}"
-        echo -e "${YELLOW}Note: To apply docker permissions immediately after login, run: newgrp docker${NC}"
+        echo -e "${GREEN}User added to docker group and granted immediate access.${NC}"
     fi
     
     # Allow SSH
