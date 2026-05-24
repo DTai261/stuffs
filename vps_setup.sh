@@ -1813,6 +1813,39 @@ EOF
     echo -e "${YELLOW}IMPORTANT: Save the admin credentials above. They will not be shown again!${NC}"
 }
 
+# Add user to docker group
+add_user_to_docker_group() {
+    # Check if docker group exists
+    if ! getent group docker > /dev/null; then
+        echo -e "${YELLOW}Docker group does not exist. Creating it...${NC}"
+        groupadd docker || {
+            echo -e "${RED}Failed to create docker group.${NC}"
+            return 1
+        }
+    fi
+
+    read -p "Enter username to add to docker group: " username
+
+    if [ -z "$username" ]; then
+        echo -e "${RED}Username cannot be empty.${NC}"
+        return 1
+    fi
+
+    if ! id "$username" &>/dev/null; then
+        echo -e "${RED}User $username does not exist.${NC}"
+        return 1
+    fi
+
+    echo -e "${BLUE}Adding user $username to docker group...${NC}"
+    if usermod -aG docker "$username"; then
+        echo -e "${GREEN}User $username added to docker group.${NC}"
+        echo -e "${YELLOW}Note: The user may need to log out and back in for changes to take effect.${NC}"
+    else
+        echo -e "${RED}Failed to add user $username to docker group.${NC}"
+        return 1
+    fi
+}
+
 # Misc menu
 misc_menu() {
     while true; do
@@ -1825,8 +1858,9 @@ misc_menu() {
         echo "6) Configure Tmux"
         echo "7) Change user password"
         echo "8) Install WordPress"
-        echo "9) Back to main menu"
-        read -p "Choose option [1-9]: " misc_option
+        echo "9) Add user to Docker group"
+        echo "10) Back to main menu"
+        read -p "Choose option [1-10]: " misc_option
         
         case $misc_option in
             1) update_system ;;
@@ -1837,7 +1871,8 @@ misc_menu() {
             6) configure_tmux ;;
             7) change_user_password ;;
             8) install_wordpress ;;
-            9) break ;;
+            9) add_user_to_docker_group ;;
+            10) break ;;
             *) echo -e "${RED}Invalid option.${NC}" ;;
         esac
     done
@@ -1880,6 +1915,16 @@ add_user() {
         echo "$username ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/"$username"
         chmod 0440 /etc/sudoers.d/"$username"
         echo -e "${GREEN}Sudo without password enabled.${NC}"
+    fi
+    
+    # Add to docker group
+    read -p "Add user to docker group? [y/N]: " add_docker
+    if [[ "$add_docker" =~ ^[Yy]$ ]]; then
+        if ! getent group docker > /dev/null; then
+            groupadd docker || true
+        fi
+        usermod -aG docker "$username"
+        echo -e "${GREEN}User added to docker group.${NC}"
     fi
     
     # Allow SSH
