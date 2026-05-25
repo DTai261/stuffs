@@ -198,6 +198,10 @@ is_package_installed() {
             if command -v "$bin_name" &> /dev/null; then
                 return 0
             fi
+            # Special case for sqlite
+            if [ "$package" = "sqlite" ] && command -v sqlite3 &> /dev/null; then
+                return 0
+            fi
             return 1
             ;;
         yum|dnf)
@@ -209,6 +213,10 @@ is_package_installed() {
             if command -v "$bin_name" &> /dev/null; then
                 return 0
             fi
+            # Special case for sqlite
+            if [ "$package" = "sqlite" ] && command -v sqlite3 &> /dev/null; then
+                return 0
+            fi
             return 1
             ;;
         pacman)
@@ -218,6 +226,10 @@ is_package_installed() {
             # Fallback: check if binary exists
             local bin_name=$(basename "$package" 2>/dev/null)
             if command -v "$bin_name" &> /dev/null; then
+                return 0
+            fi
+            # Special case for sqlite
+            if [ "$package" = "sqlite" ] && command -v sqlite3 &> /dev/null; then
                 return 0
             fi
             return 1
@@ -251,6 +263,26 @@ install_package() {
         return 0
     else
         echo -e "${RED}Failed to install $package${NC}"
+        return 1
+    fi
+}
+
+# Install SQLite3
+install_sqlite3() {
+    local pkg_name=""
+    case $OS_TYPE in
+        debian) pkg_name="sqlite3" ;;
+        rhel|arch) pkg_name="sqlite" ;;
+    esac
+    
+    echo -e "${BLUE}Preparing to install SQLite3 ($pkg_name)...${NC}"
+    install_package "$pkg_name"
+    
+    if command -v sqlite3 &> /dev/null; then
+        echo -e "${GREEN}SQLite3 is ready to use.${NC}"
+        sqlite3 --version
+    else
+        echo -e "${RED}SQLite3 installation could not be verified.${NC}"
         return 1
     fi
 }
@@ -400,6 +432,7 @@ install_packages_menu() {
                 ["tree"]="tree"
                 ["jq"]="jq"
                 ["rsync"]="rsync"
+                ["sqlite3"]="sqlite3"
             )
             ;;
         rhel)
@@ -434,6 +467,7 @@ install_packages_menu() {
                 ["tree"]="tree"
                 ["jq"]="jq"
                 ["rsync"]="rsync"
+                ["sqlite3"]="sqlite"
             )
             ;;
         arch)
@@ -468,6 +502,7 @@ install_packages_menu() {
                 ["tree"]="tree"
                 ["jq"]="jq"
                 ["rsync"]="rsync"
+                ["sqlite3"]="sqlite"
             )
             ;;
     esac
@@ -616,6 +651,11 @@ install_packages_menu() {
                         is_installed=1
                     fi
                     ;;
+                sqlite3)
+                    if command -v sqlite3 &> /dev/null; then
+                        is_installed=1
+                    fi
+                    ;;
                 ufw)
                     if command -v ufw &> /dev/null || systemctl is-active --quiet ufw 2>/dev/null || systemctl is-active --quiet firewalld 2>/dev/null; then
                         is_installed=1
@@ -656,19 +696,27 @@ install_packages_menu() {
         # Install all
         echo -e "${BLUE}Installing all packages...${NC}"
         for key in "${!packages[@]}"; do
-            local pkg_name="${packages[$key]}"
-            for pkg in $pkg_name; do
-                install_package "$pkg"
-            done
+            if [ "$key" = "sqlite3" ]; then
+                install_sqlite3
+            else
+                local pkg_name="${packages[$key]}"
+                for pkg in $pkg_name; do
+                    install_package "$pkg"
+                done
+            fi
         done
     elif [ "$pkg_option" = "$((i+1))" ]; then
         return 0
     elif [ "$pkg_option" -ge 1 ] && [ "$pkg_option" -le $((i-1)) ]; then
         local selected_key="${package_keys[$((pkg_option-1))]}"
-        local pkg_name="${packages[$selected_key]}"
-        for pkg in $pkg_name; do
-            install_package "$pkg"
-        done
+        if [ "$selected_key" = "sqlite3" ]; then
+            install_sqlite3
+        else
+            local pkg_name="${packages[$selected_key]}"
+            for pkg in $pkg_name; do
+                install_package "$pkg"
+            done
+        fi
     else
         echo -e "${RED}Invalid option.${NC}"
     fi
